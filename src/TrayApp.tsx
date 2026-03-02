@@ -1,38 +1,36 @@
-import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
+import { emit } from "@tauri-apps/api/event";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
 import { StatusIndicator } from "./components/StatusIndicator";
 import { TaskList } from "./components/TaskList";
 import { useScreenContext } from "./hooks/useScreenContext";
 import { useTasks } from "./hooks/useTasks";
-import type { AppSwitchEvent } from "./types";
+import { getSettings, saveSettings } from "./services/storage";
 
 export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
   const { tasks, addTask, toggleTask, removeTask } = useTasks();
+  const [bubbleOpacity, setBubbleOpacity] = useState(0.85);
+
+  // Load opacity on mount
+  useEffect(() => {
+    getSettings().then((s) => {
+      if (s.bubble_opacity !== undefined) setBubbleOpacity(s.bubble_opacity);
+    });
+  }, []);
+
+  const handleOpacityChange = async (value: number) => {
+    setBubbleOpacity(value);
+    await emit("bubble-opacity-changed", value);
+    const settings = await getSettings();
+    await saveSettings({ ...settings, bubble_opacity: value });
+  };
 
   useEffect(() => {
-    let analyzeTimeout: ReturnType<typeof setTimeout> | null = null;
-    let lastAnalysis = 0;
-
-    // Listen for app switch events
-    const unlistenAppSwitch = listen<AppSwitchEvent>(
-      "app-switched",
-      (_event) => {
-        // Debounce: wait 2 seconds after app switch before analyzing
-        if (analyzeTimeout) clearTimeout(analyzeTimeout);
-        analyzeTimeout = setTimeout(() => {
-          const now = Date.now();
-          if (now - lastAnalysis > 10000) {
-            lastAnalysis = now;
-            window.dispatchEvent(new CustomEvent("yoyo-auto-analyze"));
-          }
-        }, 2000);
-      }
-    );
-
-    // Register global shortcuts
+    // Register global shortcuts only
+    // Auto-analysis on app-switch is handled by Rust backend
     const registerShortcuts = async () => {
       try {
         await register("CmdOrCtrl+Shift+Y", async (event) => {
@@ -53,7 +51,8 @@ export default function TrayApp() {
       try {
         await register("CmdOrCtrl+Shift+R", (event) => {
           if (event.state === "Released") return;
-          window.dispatchEvent(new CustomEvent("yoyo-auto-analyze"));
+          // Trigger analysis via invoke (Rust handles broadcast + bubble)
+          invoke("analyze_screen").catch(console.error);
         });
       } catch (e) {
         console.warn("Failed to register analyze shortcut:", e);
@@ -61,11 +60,6 @@ export default function TrayApp() {
     };
 
     registerShortcuts();
-
-    return () => {
-      unlistenAppSwitch.then((fn) => fn());
-      if (analyzeTimeout) clearTimeout(analyzeTimeout);
-    };
   }, []);
 
   return (
@@ -90,7 +84,6 @@ export default function TrayApp() {
           <StatusIndicator loading={loading} error={error} />
         </div>
 
-        {/* Divider */}
         <div className="border-t border-zinc-800" />
 
         {/* Tasks */}
@@ -100,6 +93,30 @@ export default function TrayApp() {
           onAdd={addTask}
           onRemove={removeTask}
         />
+      </div>
+
+      {/* Bubble opacity control */}
+      <div className="px-3 py-2 border-t border-zinc-800">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500 flex-shrink-0">Opacity</span>
+          <input
+            type="range"
+            min="0.3"
+            max="1"
+            step="0.05"
+            value={bubbleOpacity}
+            onChange={(e) => handleOpacityChange(Number(e.target.value))}
+            className="flex-1 h-1 appearance-none bg-zinc-700 rounded-full cursor-pointer
+              [&::-webkit-slider-thumb]:appearance-none
+              [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+              [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-full
+              [&::-webkit-slider-thumb]:cursor-pointer
+              [&::-webkit-slider-thumb]:hover:bg-white"
+          />
+          <span className="text-[10px] text-zinc-500 w-7 text-right">
+            {Math.round(bubbleOpacity * 100)}%
+          </span>
+        </div>
       </div>
     </div>
   );

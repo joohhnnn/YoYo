@@ -14,6 +14,12 @@ pub struct Settings {
     pub shortcut_toggle: String,
     pub shortcut_analyze: String,
     pub analysis_cooldown_secs: u64,
+    #[serde(default = "default_bubble_opacity")]
+    pub bubble_opacity: f64,
+}
+
+fn default_bubble_opacity() -> f64 {
+    0.85
 }
 
 impl Default for Settings {
@@ -24,6 +30,7 @@ impl Default for Settings {
             shortcut_toggle: "CmdOrCtrl+Shift+Y".to_string(),
             shortcut_analyze: "CmdOrCtrl+Shift+R".to_string(),
             analysis_cooldown_secs: 10,
+            bubble_opacity: 0.85,
         }
     }
 }
@@ -85,16 +92,21 @@ pub fn take_screenshot() -> Result<String, String> {
         .ok_or_else(|| "Invalid path".to_string())
 }
 
+/// Core analysis logic, usable from both the Tauri command and Rust-side auto-analysis.
+pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
+    let screenshot_path = screenshot::capture_screen()?;
+    let data = load_data(app);
+
+    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await
+    } else {
+        ai_engine::analyze_with_cli(&screenshot_path).await
+    }
+}
+
 #[tauri::command]
 pub async fn analyze_screen(app: AppHandle) -> Result<AnalysisResult, String> {
-    let screenshot_path = screenshot::capture_screen()?;
-    let data = load_data(&app);
-
-    let result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await?
-    } else {
-        ai_engine::analyze_with_cli(&screenshot_path).await?
-    };
+    let result = do_analyze(&app).await?;
 
     // Cache result for bubble window to pick up on mount
     if let Some(state) = app.try_state::<AppState>() {

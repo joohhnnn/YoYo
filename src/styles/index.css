@@ -30,3 +30,28 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #71717a;
 }
+
+/* Bubble entrance/exit animations */
+.bubble-container {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.bubble-enter {
+  animation: bubbleSlideIn 0.25s ease-out forwards;
+}
+
+.bubble-exit {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+}
+
+@keyframes bubbleSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

@@ -29,6 +29,7 @@ export interface Settings {
   shortcut_toggle: string;
   shortcut_analyze: string;
   analysis_cooldown_secs: number;
+  bubble_opacity: number;
 }
 
 export interface AppSwitchEvent {
