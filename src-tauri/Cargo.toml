@@ -1,0 +1,30 @@
+[package]
+name = "yoyo"
+version = "0.1.0"
+description = "AI-powered desktop workflow assistant"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "yoyo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+open = "5"
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+block2 = "0.6"
+base64 = "0.22"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }

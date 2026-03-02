@@ -1,0 +1,23 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for YoYo",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+    "positioner:default",
+    "positioner:allow-move-window",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "notification:default",
+    "notification:allow-notify",
+    "shell:default",
+    "shell:allow-open"
+  ]
+}

@@ -1,0 +1,213 @@
+use crate::ai_engine::{self, AnalysisResult};
+use crate::screenshot;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Settings {
+    pub ai_mode: String, // "cli" or "api"
+    pub api_key: String,
+    pub shortcut_toggle: String,
+    pub shortcut_analyze: String,
+    pub analysis_cooldown_secs: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            ai_mode: "cli".to_string(),
+            api_key: String::new(),
+            shortcut_toggle: "CmdOrCtrl+Shift+Y".to_string(),
+            shortcut_analyze: "CmdOrCtrl+Shift+R".to_string(),
+            analysis_cooldown_secs: 10,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskItem {
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppData {
+    pub settings: Settings,
+    pub tasks: Vec<TaskItem>,
+}
+
+impl Default for AppData {
+    fn default() -> Self {
+        Self {
+            settings: Settings::default(),
+            tasks: Vec::new(),
+        }
+    }
+}
+
+fn data_path(app: &AppHandle) -> PathBuf {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    fs::create_dir_all(&dir).ok();
+    dir.join("yoyo_data.json")
+}
+
+fn load_data(app: &AppHandle) -> AppData {
+    let path = data_path(app);
+    if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    } else {
+        AppData::default()
+    }
+}
+
+fn save_data(app: &AppHandle, data: &AppData) -> Result<(), String> {
+    let path = data_path(app);
+    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn take_screenshot() -> Result<String, String> {
+    let path = screenshot::capture_screen()?;
+    path.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Invalid path".to_string())
+}
+
+#[tauri::command]
+pub async fn analyze_screen(app: AppHandle) -> Result<AnalysisResult, String> {
+    let screenshot_path = screenshot::capture_screen()?;
+    let data = load_data(&app);
+
+    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await
+    } else {
+        ai_engine::analyze_with_cli(&screenshot_path).await
+    }
+}
+
+#[tauri::command]
+pub async fn execute_action(
+    action_type: String,
+    params: serde_json::Value,
+) -> Result<(), String> {
+    match action_type.as_str() {
+        "open_url" => {
+            let url = params["url"]
+                .as_str()
+                .ok_or("Missing url parameter")?;
+            open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
+        }
+        "open_app" => {
+            let app_name = params["app"]
+                .as_str()
+                .ok_or("Missing app parameter")?;
+            // Sanitize: only allow alphanumeric, spaces, dots, hyphens
+            if !app_name.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-') {
+                return Err("Invalid app name".to_string());
+            }
+            let output = std::process::Command::new("open")
+                .args(["-a", app_name])
+                .output()
+                .map_err(|e| format!("Failed to open app: {}", e))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).to_string())
+            }
+        }
+        "copy_to_clipboard" => {
+            let text = params["text"]
+                .as_str()
+                .ok_or("Missing text parameter")?;
+            let mut child = std::process::Command::new("pbcopy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to run pbcopy: {}", e))?;
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("Failed to write to pbcopy: {}", e))?;
+            child.wait().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        "run_command" => {
+            let cmd = params["command"]
+                .as_str()
+                .ok_or("Missing command parameter")?;
+            // Block dangerous patterns
+            let blocked = ["rm -rf", "sudo", "mkfs", "dd if=", "> /dev/", "chmod -R 777"];
+            for pattern in &blocked {
+                if cmd.contains(pattern) {
+                    return Err(format!("Blocked dangerous command pattern: {}", pattern));
+                }
+            }
+            let output = std::process::Command::new("sh")
+                .args(["-c", cmd])
+                .output()
+                .map_err(|e| format!("Failed to run command: {}", e))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).to_string())
+            }
+        }
+        "notify" => {
+            let message = params["message"]
+                .as_str()
+                .ok_or("Missing message parameter")?;
+            // Use Notification Center via osascript with proper escaping
+            // Replace backslashes and quotes to prevent AppleScript injection
+            let safe_msg: String = message
+                .chars()
+                .filter(|c| *c != '"' && *c != '\\')
+                .collect();
+            let script = format!(
+                r#"display notification "{}" with title "YoYo""#,
+                safe_msg
+            );
+            std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .map_err(|e| format!("Failed to send notification: {}", e))?;
+            Ok(())
+        }
+        _ => Err(format!("Unknown action type: {}", action_type)),
+    }
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> Settings {
+    load_data(&app).settings
+}
+
+#[tauri::command]
+pub fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    let mut data = load_data(&app);
+    data.settings = settings;
+    save_data(&app, &data)
+}
+
+#[tauri::command]
+pub fn get_tasks(app: AppHandle) -> Vec<TaskItem> {
+    load_data(&app).tasks
+}
+
+#[tauri::command]
+pub fn save_tasks(app: AppHandle, tasks: Vec<TaskItem>) -> Result<(), String> {
+    let mut data = load_data(&app);
+    data.tasks = tasks;
+    save_data(&app, &data)
+}
