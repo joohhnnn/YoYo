@@ -1,10 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import TrayApp from "./TrayApp";
+import BubbleApp from "./BubbleApp";
 import "./styles/index.css";
+
+const label = getCurrentWebviewWindow().label;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    {label === "bubble" ? <BubbleApp /> : <TrayApp />}
   </React.StrictMode>
 );

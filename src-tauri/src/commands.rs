@@ -1,9 +1,11 @@
 use crate::ai_engine::{self, AnalysisResult};
 use crate::screenshot;
+use crate::user_data;
+use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -88,11 +90,33 @@ pub async fn analyze_screen(app: AppHandle) -> Result<AnalysisResult, String> {
     let screenshot_path = screenshot::capture_screen()?;
     let data = load_data(&app);
 
-    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await
+    let result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await?
     } else {
-        ai_engine::analyze_with_cli(&screenshot_path).await
+        ai_engine::analyze_with_cli(&screenshot_path).await?
+    };
+
+    // Cache result for bubble window to pick up on mount
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut cache) = state.last_analysis.lock() {
+            *cache = Some(result.clone());
+        }
     }
+
+    // Broadcast to all windows (bubble listens for this)
+    let _ = app.emit("analysis-complete", &result);
+
+    // Show the floating action bubble
+    crate::show_bubble(&app);
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_last_analysis(app: AppHandle) -> Option<AnalysisResult> {
+    let state = app.try_state::<AppState>()?;
+    let cache = state.last_analysis.lock().ok()?;
+    cache.clone()
 }
 
 #[tauri::command]
@@ -210,4 +234,24 @@ pub fn save_tasks(app: AppHandle, tasks: Vec<TaskItem>) -> Result<(), String> {
     let mut data = load_data(&app);
     data.tasks = tasks;
     save_data(&app, &data)
+}
+
+#[tauri::command]
+pub fn get_profile() -> Result<String, String> {
+    user_data::read_profile()
+}
+
+#[tauri::command]
+pub fn save_profile(content: String) -> Result<(), String> {
+    user_data::write_profile(&content)
+}
+
+#[tauri::command]
+pub fn get_context() -> Result<String, String> {
+    user_data::read_context()
+}
+
+#[tauri::command]
+pub fn save_context(content: String) -> Result<(), String> {
+    user_data::write_context(&content)
 }

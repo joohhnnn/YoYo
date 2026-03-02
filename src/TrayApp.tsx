@@ -2,10 +2,16 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { TaskBar } from "./components/TaskBar";
+import { StatusIndicator } from "./components/StatusIndicator";
+import { TaskList } from "./components/TaskList";
+import { useScreenContext } from "./hooks/useScreenContext";
+import { useTasks } from "./hooks/useTasks";
 import type { AppSwitchEvent } from "./types";
 
-function App() {
+export default function TrayApp() {
+  const { loading, error, analyze } = useScreenContext();
+  const { tasks, addTask, toggleTask, removeTask } = useTasks();
+
   useEffect(() => {
     let analyzeTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastAnalysis = 0;
@@ -20,7 +26,6 @@ function App() {
           const now = Date.now();
           if (now - lastAnalysis > 10000) {
             lastAnalysis = now;
-            // Dispatch a custom event that components can listen to
             window.dispatchEvent(new CustomEvent("yoyo-auto-analyze"));
           }
         }, 2000);
@@ -31,7 +36,6 @@ function App() {
     const registerShortcuts = async () => {
       try {
         await register("CmdOrCtrl+Shift+Y", async (event) => {
-          // The callback fires on both press and release — only handle press
           if (event.state === "Released") return;
           const win = getCurrentWebviewWindow();
           const visible = await win.isVisible();
@@ -64,7 +68,39 @@ function App() {
     };
   }, []);
 
-  return <TaskBar />;
-}
+  return (
+    <div className="flex flex-col h-screen bg-zinc-900 text-white select-none">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+        <span className="text-sm font-semibold tracking-wide">YoYo</span>
+        <button
+          onClick={() => analyze(0)}
+          disabled={loading}
+          className="px-2.5 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded
+            disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? "Analyzing..." : "Analyze"}
+        </button>
+      </div>
 
-export default App;
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Status */}
+        <div className="px-3 py-1.5">
+          <StatusIndicator loading={loading} error={error} />
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-zinc-800" />
+
+        {/* Tasks */}
+        <TaskList
+          tasks={tasks}
+          onToggle={toggleTask}
+          onAdd={addTask}
+          onRemove={removeTask}
+        />
+      </div>
+    </div>
+  );
+}

@@ -28,3 +28,5 @@ block2 = "0.6"
 base64 = "0.22"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = "6"

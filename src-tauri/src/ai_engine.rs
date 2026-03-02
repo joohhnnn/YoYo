@@ -1,3 +1,4 @@
+use crate::user_data;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -51,15 +52,38 @@ Respond ONLY with valid JSON, no other text:
   ]
 }"#;
 
+/// Build the full prompt by prepending user profile and context.
+fn build_full_prompt() -> String {
+    let mut parts = Vec::new();
+
+    if let Ok(profile) = user_data::read_profile() {
+        let trimmed = profile.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("[User Profile]\n{}", trimmed));
+        }
+    }
+
+    if let Ok(context) = user_data::read_context() {
+        let trimmed = context.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("[User Context]\n{}", trimmed));
+        }
+    }
+
+    parts.push(ANALYSIS_PROMPT.to_string());
+    parts.join("\n\n")
+}
+
 /// Analyze a screenshot using Claude CLI
 pub async fn analyze_with_cli(screenshot_path: &Path) -> Result<AnalysisResult, String> {
     let path_str = screenshot_path
         .to_str()
         .ok_or("Invalid screenshot path")?;
 
+    let full_prompt = build_full_prompt();
     let prompt = format!(
         "Read the screenshot image at '{}' and analyze it.\n\n{}",
-        path_str, ANALYSIS_PROMPT
+        path_str, full_prompt
     );
 
     let output = tokio::process::Command::new("claude")
@@ -109,7 +133,7 @@ pub async fn analyze_with_api(
                 },
                 {
                     "type": "text",
-                    "text": ANALYSIS_PROMPT
+                    "text": build_full_prompt()
                 }
             ]
         }]
