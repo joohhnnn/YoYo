@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import type { AnalysisResult, Settings, SuggestedAction } from "./types";
@@ -11,16 +10,8 @@ export default function BubbleApp() {
   const [opacity, setOpacity] = useState(0.85);
   const [visible, setVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [actionDone, setActionDone] = useState(false);
   const { executing, execute } = useActions();
-
-  const hideBubble = useCallback(async () => {
-    setVisible(false);
-    // Wait for fade-out animation then hide window
-    setTimeout(async () => {
-      const win = getCurrentWebviewWindow();
-      await win.hide();
-    }, 200);
-  }, []);
 
   useEffect(() => {
     // Load opacity setting
@@ -65,7 +56,11 @@ export default function BubbleApp() {
 
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
-    hideBubble();
+    // Show "done" confirmation briefly, then restore action list
+    setActionDone(true);
+    setTimeout(() => {
+      setActionDone(false);
+    }, 1200);
   };
 
   if (!result) {
@@ -92,15 +87,6 @@ export default function BubbleApp() {
               YoYo
             </span>
           </div>
-          <button
-            onClick={hideBubble}
-            className="w-5 h-5 flex items-center justify-center rounded-full
-              text-zinc-500 hover:text-zinc-300 hover:bg-white/10 transition-all"
-          >
-            <svg viewBox="0 0 12 12" fill="none" className="w-2.5 h-2.5">
-              <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </button>
         </div>
 
         {/* Context */}
@@ -111,23 +97,43 @@ export default function BubbleApp() {
         {/* Separator */}
         <div className="mx-4 border-t border-white/[0.06]" />
 
-        {/* Actions — clean row style */}
-        <ActionButtons
-          actions={result.actions}
-          executing={executing}
-          onExecute={handleExecute}
-          compact
-        />
+        {/* Actions or status overlay */}
+        {executing || actionDone ? (
+          <div className="px-4 py-6 flex flex-col items-center gap-2">
+            {actionDone ? (
+              <>
+                <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-emerald-400">
+                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="text-[12px] text-zinc-400">Done</span>
+              </>
+            ) : (
+              <>
+                <span className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-[12px] text-zinc-400">Processing...</span>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+            <ActionButtons
+              actions={result.actions}
+              executing={executing}
+              onExecute={handleExecute}
+              compact
+            />
 
-        {/* Footer */}
-        <div className="px-4 py-2 flex items-center border-t border-white/[0.06]">
-          <span className="text-[10px] text-zinc-600">
-            <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
-              Cmd+Shift+R
-            </kbd>
-            {" "}refresh
-          </span>
-        </div>
+            {/* Footer */}
+            <div className="px-4 py-2 flex items-center border-t border-white/[0.06]">
+              <span className="text-[10px] text-zinc-600">
+                <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
+                  Cmd+Shift+R
+                </kbd>
+                {" "}refresh
+              </span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

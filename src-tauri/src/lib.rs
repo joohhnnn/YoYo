@@ -171,7 +171,7 @@ pub fn show_bubble(app: &tauri::AppHandle) {
         let window =
             WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
                 .title("YoYo Bubble")
-                .inner_size(340.0, 260.0)
+                .inner_size(340.0, 380.0)
                 .resizable(false)
                 .decorations(false)
                 .transparent(true)

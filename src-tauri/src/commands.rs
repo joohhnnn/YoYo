@@ -35,7 +35,7 @@ impl Default for Settings {
             api_key: String::new(),
             shortcut_toggle: "CmdOrCtrl+Shift+Y".to_string(),
             shortcut_analyze: "CmdOrCtrl+Shift+R".to_string(),
-            analysis_cooldown_secs: 10,
+            analysis_cooldown_secs: 2,
             bubble_opacity: 0.85,
             language: "zh".to_string(),
         }
