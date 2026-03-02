@@ -175,12 +175,12 @@ pub struct ReflectionRecord {
     pub created_at: String,
 }
 
-/// Jaccard word-set similarity for short text comparison.
-fn jaccard_similarity(a: &str, b: &str) -> f64 {
-    let set_a: HashSet<&str> = a.split_whitespace().collect();
-    let set_b: HashSet<&str> = b.split_whitespace().collect();
-    let intersection = set_a.intersection(&set_b).count() as f64;
-    let union = set_a.union(&set_b).count() as f64;
+/// Character bigram set similarity — works well for both Chinese and English text.
+fn bigram_similarity(a: &str, b: &str) -> f64 {
+    let bigrams_a: HashSet<(char, char)> = a.chars().zip(a.chars().skip(1)).collect();
+    let bigrams_b: HashSet<(char, char)> = b.chars().zip(b.chars().skip(1)).collect();
+    let intersection = bigrams_a.intersection(&bigrams_b).count() as f64;
+    let union = bigrams_a.union(&bigrams_b).count() as f64;
     if union == 0.0 {
         1.0
     } else {
@@ -188,7 +188,13 @@ fn jaccard_similarity(a: &str, b: &str) -> f64 {
     }
 }
 
-/// Record an activity, deduplicating against the last entry.
+/// Record an activity, deduplicating against recent entries.
+///
+/// Dedup strategy:
+/// 1. Check the last 3 records (regardless of app) for context similarity.
+///    If any has bigram similarity > 0.6 → update that record's timestamp (dedup).
+/// 2. Otherwise insert a new record.
+///
 /// Returns true if a new record was inserted, false if deduplicated.
 pub fn record_activity(
     app_name: &str,
@@ -198,42 +204,39 @@ pub fn record_activity(
 ) -> Result<bool, String> {
     let conn = open_db()?;
 
-    let last: Option<(i64, String, String)> = conn
-        .query_row(
-            "SELECT id, app_name, context FROM activity_log ORDER BY id DESC LIMIT 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
+    // Fetch last 3 records to compare against (cross-app dedup)
+    let mut stmt = conn
+        .prepare("SELECT id, app_name, context FROM activity_log ORDER BY id DESC LIMIT 3")
         .map_err(|e| e.to_string())?;
 
-    match last {
-        Some((last_id, last_app, last_context)) => {
-            if last_app != app_name {
-                // Different app — new activity
-                insert_activity(&conn, app_name, bundle_id, context, actions_json)?;
-                Ok(true)
-            } else {
-                let similarity = jaccard_similarity(&last_context, context);
-                if similarity > 0.7 {
-                    // Similar context in same app — just update timestamp
-                    conn.execute(
-                        "UPDATE activity_log SET updated_at = datetime('now','localtime') WHERE id = ?1",
-                        params![last_id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                    Ok(false)
-                } else {
-                    // Different activity in same app
-                    insert_activity(&conn, app_name, bundle_id, context, actions_json)?;
-                    Ok(true)
-                }
+    let recent: Vec<(i64, String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Find the best matching recent record
+    let mut best_match: Option<(i64, f64)> = None;
+    for (id, _prev_app, prev_context) in &recent {
+        let sim = bigram_similarity(prev_context, context);
+        if sim > 0.6 {
+            if best_match.is_none() || sim > best_match.unwrap().1 {
+                best_match = Some((*id, sim));
             }
         }
-        None => {
-            insert_activity(&conn, app_name, bundle_id, context, actions_json)?;
-            Ok(true)
-        }
+    }
+
+    if let Some((match_id, _)) = best_match {
+        // Similar context found — update timestamp and app info
+        conn.execute(
+            "UPDATE activity_log SET app_name = ?1, bundle_id = ?2, updated_at = datetime('now','localtime') WHERE id = ?3",
+            params![app_name, bundle_id, match_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(false)
+    } else {
+        insert_activity(&conn, app_name, bundle_id, context, actions_json)?;
+        Ok(true)
     }
 }
 
