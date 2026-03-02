@@ -3,9 +3,9 @@ use objc2_foundation::NSString;
 use std::ptr::NonNull;
 use tauri::{AppHandle, Emitter};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSwitchEvent {
     pub app_name: String,
     pub bundle_id: String,

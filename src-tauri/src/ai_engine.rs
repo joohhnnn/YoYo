@@ -1,4 +1,5 @@
-use crate::user_data;
+use crate::commands::ChatMessage;
+use crate::user_data::{self, ActivityRecord};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -52,8 +53,11 @@ Respond ONLY with valid JSON, no other text:
   ]
 }"#;
 
-/// Build the full prompt by prepending user profile, context, and language instruction.
-fn build_full_prompt(language: &str) -> String {
+/// Build the full prompt with activity history for observation mode.
+pub fn build_full_prompt_with_history(
+    language: &str,
+    recent_activities: &[ActivityRecord],
+) -> String {
     let mut parts = Vec::new();
 
     // Language instruction
@@ -78,7 +82,23 @@ fn build_full_prompt(language: &str) -> String {
         }
     }
 
+    // Inject recent activity history with timestamps and duration
+    if !recent_activities.is_empty() {
+        let now = chrono::Local::now().naive_local();
+        let mut history_lines = vec!["[Recent Activity History]".to_string()];
+        for activity in recent_activities {
+            let duration = format_activity_duration(&activity.created_at, &activity.updated_at);
+            let relative = format_relative_time(&activity.created_at, &now);
+            history_lines.push(format!(
+                "- {} ({}) [{}] {}{}",
+                activity.created_at, relative, activity.app_name, activity.context, duration
+            ));
+        }
+        parts.push(history_lines.join("\n"));
+    }
+
     parts.push(ANALYSIS_PROMPT.to_string());
+    parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
 }
 
@@ -86,12 +106,13 @@ fn build_full_prompt(language: &str) -> String {
 pub async fn analyze_with_cli(
     screenshot_path: &Path,
     language: &str,
+    recent_activities: &[ActivityRecord],
 ) -> Result<AnalysisResult, String> {
     let path_str = screenshot_path
         .to_str()
         .ok_or("Invalid screenshot path")?;
 
-    let full_prompt = build_full_prompt(language);
+    let full_prompt = build_full_prompt_with_history(language, recent_activities);
     let prompt = format!(
         "Read the screenshot image at '{}' and analyze it.\n\n{}",
         path_str, full_prompt
@@ -123,6 +144,7 @@ pub async fn analyze_with_api(
     screenshot_path: &Path,
     api_key: &str,
     language: &str,
+    recent_activities: &[ActivityRecord],
 ) -> Result<AnalysisResult, String> {
     let image_data = std::fs::read(screenshot_path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
@@ -145,7 +167,7 @@ pub async fn analyze_with_api(
                 },
                 {
                     "type": "text",
-                    "text": build_full_prompt(language)
+                    "text": build_full_prompt_with_history(language, recent_activities)
                 }
             ]
         }]
@@ -193,4 +215,274 @@ fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
 
     serde_json::from_str::<AnalysisResult>(json_str)
         .map_err(|e| format!("Failed to parse AI response as JSON: {}. Raw: {}", e, response))
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding conversation
+// ---------------------------------------------------------------------------
+
+const ONBOARDING_SYSTEM_PROMPT: &str = r#"You are YoYo, a friendly AI desktop assistant conducting an onboarding conversation. Your goal is to learn about the user so you can personalize their experience.
+
+Rules:
+1. Ask ONE question at a time, keep it concise and friendly.
+2. Follow this flow (4-6 turns total):
+   - Q1: What's your name and what do you do? (profession/role)
+   - Q2: What are your main tools? (IDE, apps, services)
+   - Q3: What are you currently working on? (projects/goals)
+   - Q4: Any specific workflow habits or preferences?
+3. After gathering enough info (4-6 turns), respond with EXACTLY this format:
+
+[PROFILE_COMPLETE]
+# YoYo User Profile
+
+## About Me
+(structured summary based on conversation)
+
+## Tools I Use
+(bulleted list)
+
+## Current Projects
+(what they're working on)
+
+## Preferences
+(language, habits, etc.)
+[/PROFILE_COMPLETE]
+
+4. Be warm but efficient. Each response should be 1-2 sentences max (question only).
+5. Do NOT ask all questions at once."#;
+
+/// Onboarding chat using Claude CLI (multi-turn via prompt concatenation).
+pub async fn onboarding_chat_cli(
+    history: &[ChatMessage],
+    language: &str,
+) -> Result<String, String> {
+    let lang_instruction = match language {
+        "en" => "Respond in English.",
+        _ => "请用中文回复。",
+    };
+
+    let mut prompt = format!("{}\n\n{}\n\n", lang_instruction, ONBOARDING_SYSTEM_PROMPT);
+    for msg in history {
+        match msg.role.as_str() {
+            "user" => prompt.push_str(&format!("User: {}\n", msg.content)),
+            "assistant" => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
+            _ => {}
+        }
+    }
+    prompt.push_str("Assistant: ");
+
+    let output = tokio::process::Command::new("claude")
+        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Claude CLI failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Onboarding chat using Claude API (native multi-turn messages).
+pub async fn onboarding_chat_api(
+    history: &[ChatMessage],
+    api_key: &str,
+    language: &str,
+) -> Result<String, String> {
+    let lang_instruction = match language {
+        "en" => "Respond in English.",
+        _ => "请用中文回复。",
+    };
+    let system_prompt = format!("{}\n\n{}", lang_instruction, ONBOARDING_SYSTEM_PROMPT);
+
+    let messages: Vec<serde_json::Value> = history
+        .iter()
+        .map(|msg| {
+            serde_json::json!({
+                "role": msg.role,
+                "content": msg.content
+            })
+        })
+        .collect();
+
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 512,
+        "system": system_prompt,
+        "messages": messages
+    });
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+
+    json["content"][0]["text"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| "No text in API response".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Reflection (long-term memory)
+// ---------------------------------------------------------------------------
+
+/// Generate a reflection summary from recent activities using Claude CLI.
+pub async fn generate_reflection_cli(
+    activities: &[ActivityRecord],
+    language: &str,
+) -> Result<String, String> {
+    let lang_instruction = match language {
+        "en" => "Respond in English.",
+        _ => "请用中文回复。",
+    };
+
+    let activity_text = format_activities_for_reflection(activities);
+    let prompt = format!(
+        "{}\n\nYou are analyzing a user's work activity log to identify patterns.\n\nActivities (chronological):\n{}\n\nGenerate a concise summary (3-5 sentences) covering:\n1. Main work themes/projects observed\n2. Tool usage patterns\n3. Workflow patterns\n4. Current focus areas\n\nOutput ONLY the summary text, no JSON, no headers.",
+        lang_instruction, activity_text
+    );
+
+    let output = tokio::process::Command::new("claude")
+        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Claude CLI failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Generate a reflection summary from recent activities using Claude API.
+pub async fn generate_reflection_api(
+    activities: &[ActivityRecord],
+    api_key: &str,
+    language: &str,
+) -> Result<String, String> {
+    let lang_instruction = match language {
+        "en" => "Respond in English.",
+        _ => "请用中文回复。",
+    };
+
+    let activity_text = format_activities_for_reflection(activities);
+    let prompt = format!(
+        "You are analyzing a user's work activity log to identify patterns.\n\nActivities (chronological):\n{}\n\nGenerate a concise summary (3-5 sentences) covering:\n1. Main work themes/projects observed\n2. Tool usage patterns\n3. Workflow patterns\n4. Current focus areas\n\nOutput ONLY the summary text, no JSON, no headers.",
+        activity_text
+    );
+
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 512,
+        "system": lang_instruction,
+        "messages": [{
+            "role": "user",
+            "content": prompt
+        }]
+    });
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+
+    json["content"][0]["text"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| "No text in API response".to_string())
+}
+
+fn format_activities_for_reflection(activities: &[ActivityRecord]) -> String {
+    activities
+        .iter()
+        .rev() // chronological order (oldest first)
+        .map(|a| {
+            let duration = format_activity_duration(&a.created_at, &a.updated_at);
+            format!("- {} [{}] {}{}", a.created_at, a.app_name, a.context, duration)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Format duration between created_at and updated_at (e.g., " (stayed 5 min)").
+fn format_activity_duration(created_at: &str, updated_at: &str) -> String {
+    let fmt = "%Y-%m-%d %H:%M:%S";
+    let created = chrono::NaiveDateTime::parse_from_str(created_at, fmt);
+    let updated = chrono::NaiveDateTime::parse_from_str(updated_at, fmt);
+    match (created, updated) {
+        (Ok(c), Ok(u)) => {
+            let secs = (u - c).num_seconds();
+            if secs < 30 {
+                String::new()
+            } else if secs < 60 {
+                format!(" ({}s)", secs)
+            } else {
+                format!(" ({}min)", secs / 60)
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Format relative time from a timestamp to now (e.g., "2 min ago").
+fn format_relative_time(timestamp: &str, now: &chrono::NaiveDateTime) -> String {
+    let fmt = "%Y-%m-%d %H:%M:%S";
+    match chrono::NaiveDateTime::parse_from_str(timestamp, fmt) {
+        Ok(t) => {
+            let secs = (*now - t).num_seconds();
+            if secs < 0 {
+                "just now".to_string()
+            } else if secs < 60 {
+                "just now".to_string()
+            } else if secs < 3600 {
+                format!("{} min ago", secs / 60)
+            } else if secs < 86400 {
+                format!("{} hr ago", secs / 3600)
+            } else {
+                format!("{} days ago", secs / 86400)
+            }
+        }
+        Err(_) => "unknown".to_string(),
+    }
 }

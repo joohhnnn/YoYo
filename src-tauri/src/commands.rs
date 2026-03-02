@@ -1,11 +1,17 @@
 use crate::ai_engine::{self, AnalysisResult};
 use crate::screenshot;
-use crate::user_data;
+use crate::user_data::{self, ActivityRecord};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatMessage {
+    pub role: String, // "user" or "assistant"
+    pub content: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -101,13 +107,31 @@ pub fn take_screenshot() -> Result<String, String> {
 
 /// Core analysis logic, usable from both the Tauri command and Rust-side auto-analysis.
 pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
+    // Skip analysis during onboarding
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(active) = state.onboarding_active.lock() {
+            if *active {
+                return Err("Skipped: onboarding in progress".to_string());
+            }
+        }
+    }
+
     let screenshot_path = screenshot::capture_screen()?;
     let data = load_data(app);
 
+    // Fetch recent activities for context injection
+    let recent = user_data::get_recent_activities(30).unwrap_or_default();
+
     if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key, &data.settings.language).await
+        ai_engine::analyze_with_api(
+            &screenshot_path,
+            &data.settings.api_key,
+            &data.settings.language,
+            &recent,
+        )
+        .await
     } else {
-        ai_engine::analyze_with_cli(&screenshot_path, &data.settings.language).await
+        ai_engine::analyze_with_cli(&screenshot_path, &data.settings.language, &recent).await
     }
 }
 
@@ -278,4 +302,182 @@ pub fn get_context() -> Result<String, String> {
 #[tauri::command]
 pub fn save_context(content: String) -> Result<(), String> {
     user_data::write_context(&content)
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn check_needs_onboarding() -> Result<bool, String> {
+    user_data::is_profile_default()
+}
+
+#[tauri::command]
+pub async fn start_onboarding(app: AppHandle) -> Result<ChatMessage, String> {
+    let state = app.state::<AppState>();
+
+    // Mark onboarding as active
+    {
+        let mut active = state.onboarding_active.lock().map_err(|e| e.to_string())?;
+        *active = true;
+    }
+    {
+        let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+        history.clear();
+    }
+
+    // Call AI with empty history to get first question
+    let data = load_data(&app);
+    let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::onboarding_chat_api(&[], &data.settings.api_key, &data.settings.language).await?
+    } else {
+        ai_engine::onboarding_chat_cli(&[], &data.settings.language).await?
+    };
+
+    let msg = ChatMessage {
+        role: "assistant".to_string(),
+        content: response,
+    };
+
+    // Store in history
+    {
+        let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+        history.push(msg.clone());
+    }
+
+    Ok(msg)
+}
+
+#[tauri::command]
+pub async fn send_onboarding_message(
+    app: AppHandle,
+    message: String,
+) -> Result<ChatMessage, String> {
+    let state = app.state::<AppState>();
+
+    // Add user message to history
+    {
+        let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+        history.push(ChatMessage {
+            role: "user".to_string(),
+            content: message,
+        });
+    }
+
+    // Get history snapshot
+    let history_snapshot = {
+        let history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+        history.clone()
+    };
+
+    // Call AI
+    let data = load_data(&app);
+    let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::onboarding_chat_api(
+            &history_snapshot,
+            &data.settings.api_key,
+            &data.settings.language,
+        )
+        .await?
+    } else {
+        ai_engine::onboarding_chat_cli(&history_snapshot, &data.settings.language).await?
+    };
+
+    // Check for profile completion marker
+    if response.contains("[PROFILE_COMPLETE]") {
+        if let (Some(start), Some(end)) = (
+            response.find("[PROFILE_COMPLETE]"),
+            response.find("[/PROFILE_COMPLETE]"),
+        ) {
+            let profile_content = &response[start + "[PROFILE_COMPLETE]".len()..end];
+            if !profile_content.trim().is_empty() {
+                user_data::write_profile(profile_content.trim())?;
+            }
+        }
+
+        // End onboarding
+        {
+            let mut active = state.onboarding_active.lock().map_err(|e| e.to_string())?;
+            *active = false;
+        }
+
+        let _ = app.emit("onboarding-complete", ());
+
+        return Ok(ChatMessage {
+            role: "assistant".to_string(),
+            content: "Profile saved! Switching to normal mode...".to_string(),
+        });
+    }
+
+    // Normal conversation turn
+    let assistant_msg = ChatMessage {
+        role: "assistant".to_string(),
+        content: response,
+    };
+
+    {
+        let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+        history.push(assistant_msg.clone());
+    }
+
+    Ok(assistant_msg)
+}
+
+#[tauri::command]
+pub fn finish_onboarding(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut active = state.onboarding_active.lock().map_err(|e| e.to_string())?;
+    *active = false;
+    let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
+    history.clear();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Activity history query
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_recent_activities(limit: Option<usize>) -> Result<Vec<ActivityRecord>, String> {
+    user_data::get_recent_activities(limit.unwrap_or(30))
+}
+
+// ---------------------------------------------------------------------------
+// Reflection (long-term memory)
+// ---------------------------------------------------------------------------
+
+/// Trigger a reflection analysis of recent activities.
+pub async fn trigger_reflection(app: &AppHandle) -> Result<(), String> {
+    let activities = user_data::get_recent_activities(100)?;
+    if activities.is_empty() {
+        return Ok(());
+    }
+
+    let data = load_data(app);
+    let summary = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::generate_reflection_api(
+            &activities,
+            &data.settings.api_key,
+            &data.settings.language,
+        )
+        .await?
+    } else {
+        ai_engine::generate_reflection_cli(&activities, &data.settings.language).await?
+    };
+
+    let total = user_data::get_total_activity_count()?;
+    let period_start = activities
+        .last()
+        .map(|a| a.created_at.clone())
+        .unwrap_or_default();
+    let period_end = activities
+        .first()
+        .map(|a| a.created_at.clone())
+        .unwrap_or_default();
+
+    user_data::save_reflection(&summary, total, &period_start, &period_end)?;
+    user_data::update_context_with_reflection(&summary, &period_end)?;
+
+    Ok(())
 }

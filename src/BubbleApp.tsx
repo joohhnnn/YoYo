@@ -2,10 +2,19 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { ActionButtons } from "./components/ActionButtons";
+import { ChatView } from "./components/ChatView";
 import { useActions } from "./hooks/useActions";
-import type { AnalysisResult, Settings, SuggestedAction } from "./types";
+import {
+  checkNeedsOnboarding,
+  startOnboarding,
+  sendOnboardingMessage,
+} from "./services/onboarding";
+import type { AnalysisResult, ChatMessage, Settings, SuggestedAction } from "./types";
+
+type BubbleMode = "normal" | "chat";
 
 export default function BubbleApp() {
+  const [mode, setMode] = useState<BubbleMode>("normal");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [opacity, setOpacity] = useState(0.85);
   const [visible, setVisible] = useState(false);
@@ -13,19 +22,40 @@ export default function BubbleApp() {
   const [actionDone, setActionDone] = useState(false);
   const { executing, execute } = useActions();
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+
   useEffect(() => {
     // Load opacity setting
     invoke<Settings>("get_settings").then((s) => {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
     });
 
-    // On mount, fetch cached result
-    invoke<AnalysisResult | null>("get_last_analysis").then((cached) => {
-      if (cached) {
-        setResult(cached);
-        setVisible(true);
-      }
-    });
+    // Check if onboarding is needed
+    checkNeedsOnboarding()
+      .then((needed) => {
+        if (needed) {
+          setMode("chat");
+          setVisible(true);
+          setChatLoading(true);
+          startOnboarding()
+            .then((msg) => {
+              setChatMessages([msg]);
+            })
+            .catch(console.error)
+            .finally(() => setChatLoading(false));
+        } else {
+          // On mount, fetch cached result
+          invoke<AnalysisResult | null>("get_last_analysis").then((cached) => {
+            if (cached) {
+              setResult(cached);
+              setVisible(true);
+            }
+          });
+        }
+      })
+      .catch(console.error);
 
     // Show refreshing indicator on app switch; content updates when analysis completes
     const unlistenSwitch = listen("app-switched", () => {
@@ -47,22 +77,77 @@ export default function BubbleApp() {
       setOpacity(event.payload);
     });
 
+    // Listen for onboarding completion
+    const unlistenOnboarding = listen("onboarding-complete", () => {
+      setMode("normal");
+    });
+
     return () => {
       unlistenSwitch.then((fn) => fn());
       unlistenAnalysis.then((fn) => fn());
       unlistenOpacity.then((fn) => fn());
+      unlistenOnboarding.then((fn) => fn());
     };
   }, []);
 
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
-    // Show "done" confirmation briefly, then restore action list
     setActionDone(true);
     setTimeout(() => {
       setActionDone(false);
     }, 1200);
   };
 
+  const handleChatSend = async (text: string) => {
+    setChatMessages((prev) => [...prev, { role: "user", content: text }]);
+    setChatLoading(true);
+    try {
+      const reply = await sendOnboardingMessage(text);
+      setChatMessages((prev) => [...prev, reply]);
+    } catch (e) {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Error: ${e}` },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Chat mode: always show
+  if (mode === "chat") {
+    return (
+      <div
+        className="bubble-container bubble-enter"
+        style={{ opacity }}
+      >
+        <div className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
+          shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
+          text-white select-none overflow-hidden h-[370px] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.5)]" />
+              <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+                YoYo Setup
+              </span>
+            </div>
+          </div>
+
+          {/* Chat content */}
+          <div className="flex-1 min-h-0">
+            <ChatView
+              messages={chatMessages}
+              loading={chatLoading}
+              onSend={handleChatSend}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Normal mode: need result
   if (!result) {
     return null;
   }

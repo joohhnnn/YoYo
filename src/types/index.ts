@@ -37,3 +37,17 @@ export interface AppSwitchEvent {
   app_name: string;
   bundle_id: string;
 }
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ActivityRecord {
+  id: number;
+  app_name: string;
+  bundle_id: string;
+  context: string;
+  created_at: string;
+  updated_at: string;
+}
