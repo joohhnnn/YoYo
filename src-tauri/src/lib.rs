@@ -16,7 +16,8 @@ use tauri_plugin_positioner::{Position, WindowExt};
 /// Shared app state for caching the latest analysis result.
 pub struct AppState {
     pub last_analysis: Mutex<Option<AnalysisResult>>,
-    pub last_auto_analysis: AtomicI64,
+    pub debounce_counter: AtomicI64,
+    pub last_analysis_time: AtomicI64,
 }
 
 pub fn run() {
@@ -27,7 +28,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             last_analysis: Mutex::new(None),
-            last_auto_analysis: AtomicI64::new(0),
+            debounce_counter: AtomicI64::new(0),
+            last_analysis_time: AtomicI64::new(0),
         })
         .setup(|app| {
             // Start window monitor
@@ -46,28 +48,44 @@ pub fn run() {
             }
 
             // Listen for app-switch events and auto-analyze from Rust side.
-            // This way analysis works even before the tray panel is opened.
+            // Uses debounce counter: only the latest switch triggers analysis after settling.
             let app_for_switch = app.handle().clone();
             app.listen("app-switched", move |_event| {
                 let app = app_for_switch.clone();
                 let state = app.state::<AppState>();
-                let now = chrono_millis();
-                let last = state.last_auto_analysis.load(Ordering::Relaxed);
-                if now - last < 12_000 {
-                    return; // Cooldown: at least 12s between auto-analyses
-                }
-                state.last_auto_analysis.store(now, Ordering::Relaxed);
 
-                // Debounce: wait 2s then analyze
+                // Increment counter; only the latest event will match after debounce
+                let my_counter = state.debounce_counter.fetch_add(1, Ordering::Relaxed) + 1;
+
                 tauri::async_runtime::spawn(async move {
+                    // Wait for user to settle on an app
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                    let state = app.state::<AppState>();
+
+                    // If counter changed, a newer switch happened — skip this one
+                    if state.debounce_counter.load(Ordering::Relaxed) != my_counter {
+                        return;
+                    }
+
+                    // Check cooldown against last completed analysis
+                    let now = chrono_millis();
+                    let last = state.last_analysis_time.load(Ordering::Relaxed);
+                    let cooldown_ms = (commands::get_cooldown_secs(&app) as i64) * 1000;
+                    if now - last < cooldown_ms {
+                        return;
+                    }
+
                     match commands::do_analyze(&app).await {
                         Ok(result) => {
+                            // Update last analysis timestamp
+                            state
+                                .last_analysis_time
+                                .store(chrono_millis(), Ordering::Relaxed);
+
                             // Cache + broadcast + show bubble
-                            if let Some(state) = app.try_state::<AppState>() {
-                                if let Ok(mut cache) = state.last_analysis.lock() {
-                                    *cache = Some(result.clone());
-                                }
+                            if let Ok(mut cache) = state.last_analysis.lock() {
+                                *cache = Some(result.clone());
                             }
                             let _ = app.emit("analysis-complete", &result);
                             show_bubble(&app);

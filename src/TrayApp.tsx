@@ -13,11 +13,13 @@ export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
   const { tasks, addTask, toggleTask, removeTask } = useTasks();
   const [bubbleOpacity, setBubbleOpacity] = useState(0.85);
+  const [language, setLanguage] = useState("zh");
 
-  // Load opacity on mount
+  // Load settings on mount
   useEffect(() => {
     getSettings().then((s) => {
       if (s.bubble_opacity !== undefined) setBubbleOpacity(s.bubble_opacity);
+      if (s.language) setLanguage(s.language);
     });
   }, []);
 
@@ -93,6 +95,33 @@ export default function TrayApp() {
           onAdd={addTask}
           onRemove={removeTask}
         />
+      </div>
+
+      {/* Settings controls */}
+      <div className="px-3 py-2 border-t border-zinc-800 space-y-2">
+        {/* Language toggle */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500 flex-shrink-0">Lang</span>
+          <div className="flex-1 flex gap-1">
+            {(["zh", "en"] as const).map((lang) => (
+              <button
+                key={lang}
+                onClick={async () => {
+                  setLanguage(lang);
+                  const settings = await getSettings();
+                  await saveSettings({ ...settings, language: lang });
+                }}
+                className={`flex-1 text-[10px] py-0.5 rounded transition-colors ${
+                  language === lang
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                }`}
+              >
+                {lang === "zh" ? "中文" : "EN"}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Bubble opacity control */}

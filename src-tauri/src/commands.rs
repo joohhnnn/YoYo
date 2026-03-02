@@ -16,10 +16,16 @@ pub struct Settings {
     pub analysis_cooldown_secs: u64,
     #[serde(default = "default_bubble_opacity")]
     pub bubble_opacity: f64,
+    #[serde(default = "default_language")]
+    pub language: String, // "zh" or "en"
 }
 
 fn default_bubble_opacity() -> f64 {
     0.85
+}
+
+fn default_language() -> String {
+    "zh".to_string()
 }
 
 impl Default for Settings {
@@ -31,6 +37,7 @@ impl Default for Settings {
             shortcut_analyze: "CmdOrCtrl+Shift+R".to_string(),
             analysis_cooldown_secs: 10,
             bubble_opacity: 0.85,
+            language: "zh".to_string(),
         }
     }
 }
@@ -98,10 +105,15 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     let data = load_data(app);
 
     if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key).await
+        ai_engine::analyze_with_api(&screenshot_path, &data.settings.api_key, &data.settings.language).await
     } else {
-        ai_engine::analyze_with_cli(&screenshot_path).await
+        ai_engine::analyze_with_cli(&screenshot_path, &data.settings.language).await
     }
+}
+
+/// Read the analysis cooldown from persisted settings.
+pub fn get_cooldown_secs(app: &AppHandle) -> u64 {
+    load_data(app).settings.analysis_cooldown_secs
 }
 
 #[tauri::command]

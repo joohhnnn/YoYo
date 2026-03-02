@@ -52,9 +52,17 @@ Respond ONLY with valid JSON, no other text:
   ]
 }"#;
 
-/// Build the full prompt by prepending user profile and context.
-fn build_full_prompt() -> String {
+/// Build the full prompt by prepending user profile, context, and language instruction.
+fn build_full_prompt(language: &str) -> String {
     let mut parts = Vec::new();
+
+    // Language instruction
+    match language {
+        "en" => parts.push("Respond in English.".to_string()),
+        _ => parts.push(
+            "请用中文回复。context 字段和 label 字段都必须使用中文。".to_string(),
+        ),
+    }
 
     if let Ok(profile) = user_data::read_profile() {
         let trimmed = profile.trim();
@@ -75,12 +83,15 @@ fn build_full_prompt() -> String {
 }
 
 /// Analyze a screenshot using Claude CLI
-pub async fn analyze_with_cli(screenshot_path: &Path) -> Result<AnalysisResult, String> {
+pub async fn analyze_with_cli(
+    screenshot_path: &Path,
+    language: &str,
+) -> Result<AnalysisResult, String> {
     let path_str = screenshot_path
         .to_str()
         .ok_or("Invalid screenshot path")?;
 
-    let full_prompt = build_full_prompt();
+    let full_prompt = build_full_prompt(language);
     let prompt = format!(
         "Read the screenshot image at '{}' and analyze it.\n\n{}",
         path_str, full_prompt
@@ -111,6 +122,7 @@ pub async fn analyze_with_cli(screenshot_path: &Path) -> Result<AnalysisResult, 
 pub async fn analyze_with_api(
     screenshot_path: &Path,
     api_key: &str,
+    language: &str,
 ) -> Result<AnalysisResult, String> {
     let image_data = std::fs::read(screenshot_path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
@@ -133,7 +145,7 @@ pub async fn analyze_with_api(
                 },
                 {
                     "type": "text",
-                    "text": build_full_prompt()
+                    "text": build_full_prompt(language)
                 }
             ]
         }]

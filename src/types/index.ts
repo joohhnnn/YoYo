@@ -30,6 +30,7 @@ export interface Settings {
   shortcut_analyze: string;
   analysis_cooldown_secs: number;
   bubble_opacity: number;
+  language: string;
 }
 
 export interface AppSwitchEvent {
