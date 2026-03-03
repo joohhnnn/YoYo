@@ -23,7 +23,7 @@ export function useTasks() {
         text,
         done: false,
         quest_type: questType,
-        progress: target !== undefined ? 0 : undefined,
+        progress: target != null ? 0 : undefined,
         target,
       };
       const updated = [...tasks, newTask];
@@ -36,7 +36,7 @@ export function useTasks() {
     (id: string, progress: number) => {
       const updated = tasks.map((t) => {
         if (t.id !== id) return t;
-        const done = t.target !== undefined && progress >= t.target;
+        const done = t.target != null && progress >= t.target;
         return { ...t, progress, done };
       });
       persist(updated);

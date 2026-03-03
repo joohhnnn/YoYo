@@ -102,7 +102,7 @@ function MainQuestSection({
               </button>
             </div>
 
-            {quest.target !== undefined && (
+            {quest.target != null && (
               <div className="mt-2">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">

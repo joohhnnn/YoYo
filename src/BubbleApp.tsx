@@ -234,13 +234,13 @@ export default function BubbleApp() {
                     <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
                   </svg>
                   <span className="text-[11px] text-zinc-300 flex-1 min-w-0 truncate" title={quest.text}>{quest.text}</span>
-                  {quest.target !== undefined && (
+                  {quest.target != null && (
                     <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
                       {quest.progress ?? 0}/{quest.target}
                     </span>
                   )}
                 </div>
-                {quest.target !== undefined && (
+                {quest.target != null && (
                   <div className="mt-1 h-1 bg-black/30 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-amber-500/70 rounded-full transition-all"
