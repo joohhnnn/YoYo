@@ -105,6 +105,7 @@ pub fn build_full_prompt_with_history(
 /// Analyze a screenshot using Claude CLI
 pub async fn analyze_with_cli(
     screenshot_path: &Path,
+    model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
 ) -> Result<AnalysisResult, String> {
@@ -123,6 +124,7 @@ pub async fn analyze_with_cli(
             "-p", &prompt,
             "--output-format", "text",
             "--max-turns", "2",
+            "--model", model,
         ])
         .output()
         .await
@@ -143,6 +145,7 @@ pub async fn analyze_with_cli(
 pub async fn analyze_with_api(
     screenshot_path: &Path,
     api_key: &str,
+    model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
 ) -> Result<AnalysisResult, String> {
@@ -152,7 +155,7 @@ pub async fn analyze_with_api(
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
-        "model": "claude-sonnet-4-20250514",
+        "model": model,
         "max_tokens": 1024,
         "messages": [{
             "role": "user",
@@ -254,6 +257,7 @@ Rules:
 /// Onboarding chat using Claude CLI (multi-turn via prompt concatenation).
 pub async fn onboarding_chat_cli(
     history: &[ChatMessage],
+    model: &str,
     language: &str,
 ) -> Result<String, String> {
     let lang_instruction = match language {
@@ -272,7 +276,7 @@ pub async fn onboarding_chat_cli(
     prompt.push_str("Assistant: ");
 
     let output = tokio::process::Command::new("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1"])
+        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1", "--model", model])
         .output()
         .await
         .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
@@ -291,6 +295,7 @@ pub async fn onboarding_chat_cli(
 pub async fn onboarding_chat_api(
     history: &[ChatMessage],
     api_key: &str,
+    model: &str,
     language: &str,
 ) -> Result<String, String> {
     let lang_instruction = match language {
@@ -311,7 +316,7 @@ pub async fn onboarding_chat_api(
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
-        "model": "claude-sonnet-4-20250514",
+        "model": model,
         "max_tokens": 512,
         "system": system_prompt,
         "messages": messages
@@ -350,6 +355,7 @@ pub async fn onboarding_chat_api(
 /// Generate a reflection summary from recent activities using Claude CLI.
 pub async fn generate_reflection_cli(
     activities: &[ActivityRecord],
+    model: &str,
     language: &str,
 ) -> Result<String, String> {
     let lang_instruction = match language {
@@ -364,7 +370,7 @@ pub async fn generate_reflection_cli(
     );
 
     let output = tokio::process::Command::new("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1"])
+        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1", "--model", model])
         .output()
         .await
         .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
@@ -383,6 +389,7 @@ pub async fn generate_reflection_cli(
 pub async fn generate_reflection_api(
     activities: &[ActivityRecord],
     api_key: &str,
+    model: &str,
     language: &str,
 ) -> Result<String, String> {
     let lang_instruction = match language {
@@ -398,7 +405,7 @@ pub async fn generate_reflection_api(
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
-        "model": "claude-sonnet-4-20250514",
+        "model": model,
         "max_tokens": 512,
         "system": lang_instruction,
         "messages": [{

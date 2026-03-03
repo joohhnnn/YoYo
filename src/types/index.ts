@@ -26,11 +26,13 @@ export interface TaskItem {
 export interface Settings {
   ai_mode: string;
   api_key: string;
+  model: string;
   shortcut_toggle: string;
   shortcut_analyze: string;
   analysis_cooldown_secs: number;
   bubble_opacity: number;
   language: string;
+  auto_analyze: boolean;
 }
 
 export interface AppSwitchEvent {

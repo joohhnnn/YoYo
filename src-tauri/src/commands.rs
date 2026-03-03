@@ -17,6 +17,8 @@ pub struct ChatMessage {
 pub struct Settings {
     pub ai_mode: String, // "cli" or "api"
     pub api_key: String,
+    #[serde(default = "default_model")]
+    pub model: String, // e.g. "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514"
     pub shortcut_toggle: String,
     pub shortcut_analyze: String,
     pub analysis_cooldown_secs: u64,
@@ -24,6 +26,12 @@ pub struct Settings {
     pub bubble_opacity: f64,
     #[serde(default = "default_language")]
     pub language: String, // "zh" or "en"
+    #[serde(default = "default_auto_analyze")]
+    pub auto_analyze: bool,
+}
+
+fn default_model() -> String {
+    "claude-haiku-4-5-20251001".to_string()
 }
 
 fn default_bubble_opacity() -> f64 {
@@ -34,16 +42,22 @@ fn default_language() -> String {
     "zh".to_string()
 }
 
+fn default_auto_analyze() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             ai_mode: "cli".to_string(),
             api_key: String::new(),
+            model: "claude-haiku-4-5-20251001".to_string(),
             shortcut_toggle: "CmdOrCtrl+Shift+Y".to_string(),
             shortcut_analyze: "CmdOrCtrl+Shift+R".to_string(),
             analysis_cooldown_secs: 2,
             bubble_opacity: 0.85,
             language: "zh".to_string(),
+            auto_analyze: true,
         }
     }
 }
@@ -126,18 +140,30 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         ai_engine::analyze_with_api(
             &screenshot_path,
             &data.settings.api_key,
+            &data.settings.model,
             &data.settings.language,
             &recent,
         )
         .await
     } else {
-        ai_engine::analyze_with_cli(&screenshot_path, &data.settings.language, &recent).await
+        ai_engine::analyze_with_cli(
+            &screenshot_path,
+            &data.settings.model,
+            &data.settings.language,
+            &recent,
+        )
+        .await
     }
 }
 
 /// Read the analysis cooldown from persisted settings.
 pub fn get_cooldown_secs(app: &AppHandle) -> u64 {
     load_data(app).settings.analysis_cooldown_secs
+}
+
+/// Check if auto-analyze on app switch is enabled.
+pub fn get_auto_analyze(app: &AppHandle) -> bool {
+    load_data(app).settings.auto_analyze
 }
 
 #[tauri::command]
@@ -330,9 +356,9 @@ pub async fn start_onboarding(app: AppHandle) -> Result<ChatMessage, String> {
     // Call AI with empty history to get first question
     let data = load_data(&app);
     let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::onboarding_chat_api(&[], &data.settings.api_key, &data.settings.language).await?
+        ai_engine::onboarding_chat_api(&[], &data.settings.api_key, &data.settings.model, &data.settings.language).await?
     } else {
-        ai_engine::onboarding_chat_cli(&[], &data.settings.language).await?
+        ai_engine::onboarding_chat_cli(&[], &data.settings.model, &data.settings.language).await?
     };
 
     let msg = ChatMessage {
@@ -377,11 +403,12 @@ pub async fn send_onboarding_message(
         ai_engine::onboarding_chat_api(
             &history_snapshot,
             &data.settings.api_key,
+            &data.settings.model,
             &data.settings.language,
         )
         .await?
     } else {
-        ai_engine::onboarding_chat_cli(&history_snapshot, &data.settings.language).await?
+        ai_engine::onboarding_chat_cli(&history_snapshot, &data.settings.model, &data.settings.language).await?
     };
 
     // Check for profile completion marker
@@ -459,11 +486,12 @@ pub async fn trigger_reflection(app: &AppHandle) -> Result<(), String> {
         ai_engine::generate_reflection_api(
             &activities,
             &data.settings.api_key,
+            &data.settings.model,
             &data.settings.language,
         )
         .await?
     } else {
-        ai_engine::generate_reflection_cli(&activities, &data.settings.language).await?
+        ai_engine::generate_reflection_cli(&activities, &data.settings.model, &data.settings.language).await?
     };
 
     let total = user_data::get_total_activity_count()?;

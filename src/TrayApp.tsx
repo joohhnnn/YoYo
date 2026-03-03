@@ -1,38 +1,19 @@
 import { useEffect, useState } from "react";
-import { emit } from "@tauri-apps/api/event";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { StatusIndicator } from "./components/StatusIndicator";
 import { TaskList } from "./components/TaskList";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { useScreenContext } from "./hooks/useScreenContext";
 import { useTasks } from "./hooks/useTasks";
-import { getSettings, saveSettings } from "./services/storage";
 
 export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
   const { tasks, addTask, toggleTask, removeTask } = useTasks();
-  const [bubbleOpacity, setBubbleOpacity] = useState(0.85);
-  const [language, setLanguage] = useState("zh");
-
-  // Load settings on mount
-  useEffect(() => {
-    getSettings().then((s) => {
-      if (s.bubble_opacity !== undefined) setBubbleOpacity(s.bubble_opacity);
-      if (s.language) setLanguage(s.language);
-    });
-  }, []);
-
-  const handleOpacityChange = async (value: number) => {
-    setBubbleOpacity(value);
-    await emit("bubble-opacity-changed", value);
-    const settings = await getSettings();
-    await saveSettings({ ...settings, bubble_opacity: value });
-  };
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    // Register global shortcuts only
-    // Auto-analysis on app-switch is handled by Rust backend
     const registerShortcuts = async () => {
       try {
         await register("CmdOrCtrl+Shift+Y", async (event) => {
@@ -53,7 +34,6 @@ export default function TrayApp() {
       try {
         await register("CmdOrCtrl+Shift+R", (event) => {
           if (event.state === "Released") return;
-          // Trigger analysis via invoke (Rust handles broadcast + bubble)
           invoke("analyze_screen").catch(console.error);
         });
       } catch (e) {
@@ -64,19 +44,50 @@ export default function TrayApp() {
     registerShortcuts();
   }, []);
 
+  if (showSettings) {
+    return (
+      <div className="flex flex-col h-screen bg-zinc-900 text-white select-none">
+        <SettingsPanel onClose={() => setShowSettings(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-zinc-900 text-white select-none">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
         <span className="text-sm font-semibold tracking-wide">YoYo</span>
-        <button
-          onClick={() => analyze(0)}
-          disabled={loading}
-          className="px-2.5 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded
-            disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? "Analyzing..." : "Analyze"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+            title="Settings"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+              <path
+                d="M6.5 1.5h3l.5 2 1.5.7 1.8-1 2.1 2.1-1 1.8.7 1.5 2 .5v3l-2 .5-1.5.7-1 1.8-2.1 2.1-1.8-1-1.5.7-.5 2h-3l-.5-2-1.5-.7-1.8 1-2.1-2.1 1-1.8-.7-1.5-2-.5v-3l2-.5 1.5-.7 1-1.8 2.1-2.1 1.8 1z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+              <circle
+                cx="8"
+                cy="8"
+                r="2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={() => analyze(0)}
+            disabled={loading}
+            className="px-2.5 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded
+              disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? "Analyzing..." : "Analyze"}
+          </button>
+        </div>
       </div>
 
       {/* Scrollable content */}
@@ -95,57 +106,6 @@ export default function TrayApp() {
           onAdd={addTask}
           onRemove={removeTask}
         />
-      </div>
-
-      {/* Settings controls */}
-      <div className="px-3 py-2 border-t border-zinc-800 space-y-2">
-        {/* Language toggle */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-zinc-500 flex-shrink-0">Lang</span>
-          <div className="flex-1 flex gap-1">
-            {(["zh", "en"] as const).map((lang) => (
-              <button
-                key={lang}
-                onClick={async () => {
-                  setLanguage(lang);
-                  const settings = await getSettings();
-                  await saveSettings({ ...settings, language: lang });
-                }}
-                className={`flex-1 text-[10px] py-0.5 rounded transition-colors ${
-                  language === lang
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                }`}
-              >
-                {lang === "zh" ? "中文" : "EN"}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Bubble opacity control */}
-      <div className="px-3 py-2 border-t border-zinc-800">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-zinc-500 flex-shrink-0">Opacity</span>
-          <input
-            type="range"
-            min="0.3"
-            max="1"
-            step="0.05"
-            value={bubbleOpacity}
-            onChange={(e) => handleOpacityChange(Number(e.target.value))}
-            className="flex-1 h-1 appearance-none bg-zinc-700 rounded-full cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none
-              [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-              [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-full
-              [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-webkit-slider-thumb]:hover:bg-white"
-          />
-          <span className="text-[10px] text-zinc-500 w-7 text-right">
-            {Math.round(bubbleOpacity * 100)}%
-          </span>
-        </div>
       </div>
     </div>
   );

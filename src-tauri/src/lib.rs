@@ -106,6 +106,11 @@ pub fn run() {
                         return;
                     }
 
+                    // Check if auto-analyze is enabled
+                    if !commands::get_auto_analyze(&app) {
+                        return;
+                    }
+
                     // Check cooldown against last completed analysis
                     let now = chrono_millis();
                     let last = state.last_analysis_time.load(Ordering::Relaxed);
