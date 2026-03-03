@@ -244,9 +244,18 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         .await
     }?;
 
-    // Strip suggested_quest if user already has active main quests
+    // Filter out suggested_quest if it duplicates an existing active quest
     if has_active_quests {
-        result.suggested_quest = None;
+        if let Some(ref suggested) = result.suggested_quest {
+            let suggested_lower = suggested.to_lowercase();
+            let is_duplicate = main_quests.iter().any(|q| {
+                let q_lower = q.to_lowercase();
+                q_lower.contains(&suggested_lower) || suggested_lower.contains(&q_lower)
+            });
+            if is_duplicate {
+                result.suggested_quest = None;
+            }
+        }
     }
 
     Ok(result)

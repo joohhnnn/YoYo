@@ -173,9 +173,16 @@ pub fn build_full_prompt_with_history(
         parts.push(history_lines.join("\n"));
     }
 
-    // Inject main quests if set — and suppress quest suggestions when quests are active
+    // Inject main quests — allow AI to suggest new quests for different projects
     if let Some(quest) = main_quest {
-        parts.push(format!("[Current Main Quests]\nThe user's active main goals:\n- {}\nPrioritize suggesting actions that help achieve these quests. The user already has active main quests, so do NOT include the \"suggested_quest\" field in your response.", quest));
+        parts.push(format!(
+            "[Current Main Quests]\nThe user's active main goals:\n- {}\n\
+            Prioritize suggesting actions that help achieve these quests.\n\
+            IMPORTANT: If the user appears to be working on a DIFFERENT project or goal that is NOT covered by any existing quest above, \
+            you SHOULD suggest it as a new quest via \"suggested_quest\". \
+            Do NOT re-suggest quests that already exist. Only suggest genuinely new, distinct projects.",
+            quest
+        ));
     }
 
     // Inject OCR-extracted screen text
