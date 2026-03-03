@@ -224,7 +224,7 @@ function SideQuestList({
       <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">
         Side Quests
       </div>
-      <div className="space-y-1 max-h-32 overflow-y-auto">
+      <div className="space-y-1 max-h-48 overflow-y-auto">
         {quests.map((task) => (
           <div
             key={task.id}
@@ -256,9 +256,10 @@ function SideQuestList({
               )}
             </button>
             <span
-              className={`flex-1 ${
+              className={`flex-1 truncate ${
                 task.done ? "line-through text-zinc-600" : "text-zinc-300"
               }`}
+              title={task.text}
             >
               {task.text}
             </span>

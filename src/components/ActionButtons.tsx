@@ -90,7 +90,7 @@ export function ActionButtons({
               }`}
           >
             <ActionIcon type={action.type} />
-            <span className="flex-1 text-zinc-200 truncate">{action.label}</span>
+            <span className="flex-1 text-zinc-200 truncate" title={action.label}>{action.label}</span>
             {isExecuting ? (
               <span className="w-3.5 h-3.5 border-[1.5px] border-zinc-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
             ) : (

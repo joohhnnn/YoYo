@@ -123,7 +123,7 @@ export default function TrayApp() {
             <svg viewBox="0 0 12 12" className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M6 1.5a2.5 2.5 0 012.5 2.5c0 1.2-.8 1.8-1.2 2.3-.3.3-.5.6-.5 1v.2M6 9.5v.5" strokeLinecap="round" />
             </svg>
-            <span className="text-[12px] text-zinc-300 flex-1 truncate">{suggestedQuest}</span>
+            <span className="text-[12px] text-zinc-300 flex-1 break-words" title={suggestedQuest}>{suggestedQuest}</span>
             <button
               onClick={() => {
                 addTask(suggestedQuest, "main");

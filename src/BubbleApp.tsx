@@ -168,7 +168,7 @@ export default function BubbleApp() {
       >
         <div className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
           shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-          text-white select-none overflow-hidden h-[370px] flex flex-col">
+          text-white select-none overflow-hidden min-h-[300px] max-h-[460px] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -233,7 +233,7 @@ export default function BubbleApp() {
                   <svg viewBox="0 0 12 12" className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor">
                     <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
                   </svg>
-                  <span className="text-[11px] text-zinc-300 flex-1 truncate">{quest.text}</span>
+                  <span className="text-[11px] text-zinc-300 flex-1 truncate" title={quest.text}>{quest.text}</span>
                   {quest.target !== undefined && (
                     <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
                       {quest.progress ?? 0}/{quest.target}
@@ -261,7 +261,7 @@ export default function BubbleApp() {
             <svg viewBox="0 0 12 12" className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M6 1.5a2.5 2.5 0 012.5 2.5c0 1.2-.8 1.8-1.2 2.3-.3.3-.5.6-.5 1v.2M6 9.5v.5" strokeLinecap="round" />
             </svg>
-            <span className="text-[11px] text-zinc-300 flex-1 truncate">{suggestedQuest}</span>
+            <span className="text-[11px] text-zinc-300 flex-1 break-words" title={suggestedQuest}>{suggestedQuest}</span>
             <button
               onClick={handleAcceptQuest}
               className="p-0.5 text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0"
