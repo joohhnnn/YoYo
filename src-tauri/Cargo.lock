@@ -5834,6 +5834,7 @@ dependencies = [
  "block2",
  "chrono",
  "dirs",
+ "image",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

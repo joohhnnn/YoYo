@@ -3,4 +3,5 @@ dist/
 src-tauri/target/
 *.DS_Store
 README.md
+dev-plan.md
 

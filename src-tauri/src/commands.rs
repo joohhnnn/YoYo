@@ -1,4 +1,5 @@
 use crate::ai_engine::{self, AnalysisResult};
+use crate::ocr;
 use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
 use crate::AppState;
@@ -150,6 +151,21 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     let screenshot_path = screenshot::capture_screen()?;
     let data = load_data(app);
 
+    // Run OCR on screenshot to extract text
+    let ocr_text = match ocr::recognize_text(&screenshot_path) {
+        Ok(result) => {
+            if result.text.trim().is_empty() {
+                None
+            } else {
+                Some(result.text)
+            }
+        }
+        Err(e) => {
+            eprintln!("OCR failed, falling back to image-only: {}", e);
+            None
+        }
+    };
+
     // Fetch recent activities for context injection
     let recent = user_data::get_recent_activities(30).unwrap_or_default();
 
@@ -176,6 +192,12 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     let depth = &data.settings.analysis_depth;
 
+    // Decide whether to send image based on depth:
+    // - casual/normal: text-only (OCR text), skip image to save tokens
+    // - deep: send both OCR text + image for maximum detail
+    // - fallback: if OCR failed (no text), always send image
+    let send_image = depth == "deep" || ocr_text.is_none();
+
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
             &screenshot_path,
@@ -185,6 +207,8 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &recent,
             main_quest.as_deref(),
             depth,
+            ocr_text.as_deref(),
+            send_image,
         )
         .await
     } else {
@@ -195,6 +219,8 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &recent,
             main_quest.as_deref(),
             depth,
+            ocr_text.as_deref(),
+            send_image,
         )
         .await
     }?;

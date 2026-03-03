@@ -1,6 +1,7 @@
 mod ai_engine;
 mod commands;
 mod frame_diff;
+mod ocr;
 mod screenshot;
 mod user_data;
 mod window_monitor;

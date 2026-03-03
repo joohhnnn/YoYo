@@ -98,6 +98,7 @@ pub fn build_full_prompt_with_history(
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     analysis_depth: &str,
+    ocr_text: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -143,6 +144,14 @@ pub fn build_full_prompt_with_history(
         parts.push(format!("[Current Main Quests]\nThe user's active main goals:\n- {}\nPrioritize suggesting actions that help achieve these quests. The user already has active main quests, so do NOT include the \"suggested_quest\" field in your response.", quest));
     }
 
+    // Inject OCR-extracted screen text
+    if let Some(text) = ocr_text {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("[Screen Text (OCR)]\n{}", trimmed));
+        }
+    }
+
     // Depth-specific instruction
     parts.push(depth_instruction(analysis_depth).to_string());
 
@@ -151,7 +160,8 @@ pub fn build_full_prompt_with_history(
     parts.join("\n\n")
 }
 
-/// Analyze a screenshot using Claude CLI
+/// Analyze a screenshot using Claude CLI.
+/// When `send_image` is false, only OCR text is sent (no screenshot reference).
 pub async fn analyze_with_cli(
     screenshot_path: &Path,
     model: &str,
@@ -159,23 +169,42 @@ pub async fn analyze_with_cli(
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     analysis_depth: &str,
+    ocr_text: Option<&str>,
+    send_image: bool,
 ) -> Result<AnalysisResult, String> {
-    let path_str = screenshot_path
-        .to_str()
-        .ok_or("Invalid screenshot path")?;
-
-    let full_prompt = build_full_prompt_with_history(language, recent_activities, main_quest, analysis_depth);
-    let prompt = format!(
-        "Read the screenshot image at '{}' and analyze it.\n\n{}",
-        path_str, full_prompt
+    let full_prompt = build_full_prompt_with_history(
+        language,
+        recent_activities,
+        main_quest,
+        analysis_depth,
+        ocr_text,
     );
+
+    let prompt = if send_image {
+        let path_str = screenshot_path
+            .to_str()
+            .ok_or("Invalid screenshot path")?;
+        format!(
+            "Read the screenshot image at '{}' and analyze it.\n\n{}",
+            path_str, full_prompt
+        )
+    } else {
+        format!(
+            "Analyze the user's current screen based on the OCR text provided.\n\n{}",
+            full_prompt
+        )
+    };
 
     let output = tokio::process::Command::new("claude")
         .args([
-            "-p", &prompt,
-            "--output-format", "text",
-            "--max-turns", "2",
-            "--model", model,
+            "-p",
+            &prompt,
+            "--output-format",
+            "text",
+            "--max-turns",
+            "2",
+            "--model",
+            model,
         ])
         .output()
         .await
@@ -192,7 +221,8 @@ pub async fn analyze_with_cli(
     parse_ai_response(&response)
 }
 
-/// Analyze a screenshot using Claude API
+/// Analyze a screenshot using Claude API.
+/// When `send_image` is false, only OCR text is sent (no base64 image), saving tokens.
 pub async fn analyze_with_api(
     screenshot_path: &Path,
     api_key: &str,
@@ -201,10 +231,44 @@ pub async fn analyze_with_api(
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     analysis_depth: &str,
+    ocr_text: Option<&str>,
+    send_image: bool,
 ) -> Result<AnalysisResult, String> {
-    let image_data = std::fs::read(screenshot_path)
-        .map_err(|e| format!("Failed to read screenshot: {}", e))?;
-    let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
+    let prompt_text = build_full_prompt_with_history(
+        language,
+        recent_activities,
+        main_quest,
+        analysis_depth,
+        ocr_text,
+    );
+
+    let content = if send_image {
+        let image_data = std::fs::read(screenshot_path)
+            .map_err(|e| format!("Failed to read screenshot: {}", e))?;
+        let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
+        serde_json::json!([
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64_image
+                }
+            },
+            {
+                "type": "text",
+                "text": prompt_text
+            }
+        ])
+    } else {
+        // Text-only mode: no image, just OCR text in the prompt
+        serde_json::json!([
+            {
+                "type": "text",
+                "text": prompt_text
+            }
+        ])
+    };
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
@@ -212,20 +276,7 @@ pub async fn analyze_with_api(
         "max_tokens": max_tokens_for_depth(analysis_depth),
         "messages": [{
             "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": base64_image
-                    }
-                },
-                {
-                    "type": "text",
-                    "text": build_full_prompt_with_history(language, recent_activities, main_quest, analysis_depth)
-                }
-            ]
+            "content": content
         }]
     });
 
