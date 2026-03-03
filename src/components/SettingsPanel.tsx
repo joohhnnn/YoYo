@@ -8,6 +8,12 @@ const MODEL_OPTIONS = [
   { value: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Balanced" },
 ];
 
+const DEPTH_OPTIONS = [
+  { value: "casual", label: "清闲", desc: "只关注大致活动" },
+  { value: "normal", label: "普通", desc: "关注焦点区域" },
+  { value: "deep", label: "硬核", desc: "读取所有可见文字" },
+];
+
 interface SettingsPanelProps {
   onClose: () => void;
 }
@@ -111,6 +117,29 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <p className="text-[9px] text-zinc-600 mt-1">
             {MODEL_OPTIONS.find((o) => o.value === settings.model)?.desc ??
               settings.model}
+          </p>
+        </SettingRow>
+
+        {/* Analysis Depth */}
+        <SettingRow label="Analysis Depth">
+          <div className="flex gap-1">
+            {DEPTH_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => update({ analysis_depth: opt.value })}
+                className={`flex-1 text-[10px] py-1 rounded transition-colors ${
+                  settings.analysis_depth === opt.value
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[9px] text-zinc-600 mt-1">
+            {DEPTH_OPTIONS.find((o) => o.value === settings.analysis_depth)
+              ?.desc ?? "关注焦点区域"}
           </p>
         </SettingRow>
 

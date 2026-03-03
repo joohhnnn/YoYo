@@ -37,6 +37,7 @@ export interface Settings {
   bubble_opacity: number;
   language: string;
   auto_analyze: boolean;
+  analysis_depth: string; // "casual" | "normal" | "deep"
 }
 
 export interface AppSwitchEvent {

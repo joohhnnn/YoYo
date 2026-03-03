@@ -28,6 +28,8 @@ pub struct Settings {
     pub language: String, // "zh" or "en"
     #[serde(default = "default_auto_analyze")]
     pub auto_analyze: bool,
+    #[serde(default = "default_analysis_depth")]
+    pub analysis_depth: String, // "casual" | "normal" | "deep"
 }
 
 fn default_model() -> String {
@@ -46,6 +48,10 @@ fn default_auto_analyze() -> bool {
     true
 }
 
+fn default_analysis_depth() -> String {
+    "normal".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -58,6 +64,7 @@ impl Default for Settings {
             bubble_opacity: 0.85,
             language: "zh".to_string(),
             auto_analyze: true,
+            analysis_depth: "normal".to_string(),
         }
     }
 }
@@ -167,6 +174,8 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     let has_active_quests = !main_quests.is_empty();
 
+    let depth = &data.settings.analysis_depth;
+
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
             &screenshot_path,
@@ -175,6 +184,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            depth,
         )
         .await
     } else {
@@ -184,6 +194,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            depth,
         )
         .await
     }?;

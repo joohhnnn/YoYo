@@ -59,11 +59,45 @@ Respond ONLY with valid JSON, no other text:
 
 The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected."#;
 
+/// Returns the analysis depth instruction to prepend to the prompt.
+fn depth_instruction(depth: &str) -> &'static str {
+    match depth {
+        "casual" => r#"[Analysis Depth: Casual]
+Focus ONLY on identifying the active application and the user's general activity category (e.g., "coding", "browsing", "chatting", "reading docs").
+Do NOT read or transcribe specific text, code, variable names, or UI details from the screen.
+Keep the "context" field to one short, general sentence.
+Suggest broad, high-level actions only (e.g., "Open Terminal", "Switch to Safari")."#,
+        "deep" => r#"[Analysis Depth: Deep]
+Read and record ALL visible text on screen in detail. This includes:
+- Article/document content, headings, and key paragraphs
+- Code with function names, comments, and logic
+- Chat/AI conversation messages (both user and AI responses)
+- Vocabulary words, definitions, and example sentences
+- Exercise questions, options, and answers
+- Any learning material content
+
+In the "context" field, provide a detailed summary that captures the specific content being viewed. If the user is learning or studying, extract key information (vocabulary, concepts, questions, formulas) into the context. Be thorough — the user wants everything recorded."#,
+        // "normal" or fallback
+        _ => r#"[Analysis Depth: Normal]
+Focus on the user's active working area — the text cursor, input fields, active editor tabs, chat messages being composed or received. Read key details like file names, search queries, and AI conversation snippets, but do not transcribe entire documents or code blocks."#,
+    }
+}
+
+/// Returns the max_tokens value based on analysis depth.
+fn max_tokens_for_depth(depth: &str) -> u32 {
+    match depth {
+        "casual" => 512,
+        "deep" => 4096,
+        _ => 1024,
+    }
+}
+
 /// Build the full prompt with activity history for observation mode.
 pub fn build_full_prompt_with_history(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    analysis_depth: &str,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -109,6 +143,9 @@ pub fn build_full_prompt_with_history(
         parts.push(format!("[Current Main Quests]\nThe user's active main goals:\n- {}\nPrioritize suggesting actions that help achieve these quests. The user already has active main quests, so do NOT include the \"suggested_quest\" field in your response.", quest));
     }
 
+    // Depth-specific instruction
+    parts.push(depth_instruction(analysis_depth).to_string());
+
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
@@ -121,12 +158,13 @@ pub async fn analyze_with_cli(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    analysis_depth: &str,
 ) -> Result<AnalysisResult, String> {
     let path_str = screenshot_path
         .to_str()
         .ok_or("Invalid screenshot path")?;
 
-    let full_prompt = build_full_prompt_with_history(language, recent_activities, main_quest);
+    let full_prompt = build_full_prompt_with_history(language, recent_activities, main_quest, analysis_depth);
     let prompt = format!(
         "Read the screenshot image at '{}' and analyze it.\n\n{}",
         path_str, full_prompt
@@ -162,6 +200,7 @@ pub async fn analyze_with_api(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    analysis_depth: &str,
 ) -> Result<AnalysisResult, String> {
     let image_data = std::fs::read(screenshot_path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
@@ -170,7 +209,7 @@ pub async fn analyze_with_api(
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 1024,
+        "max_tokens": max_tokens_for_depth(analysis_depth),
         "messages": [{
             "role": "user",
             "content": [
@@ -184,7 +223,7 @@ pub async fn analyze_with_api(
                 },
                 {
                     "type": "text",
-                    "text": build_full_prompt_with_history(language, recent_activities, main_quest)
+                    "text": build_full_prompt_with_history(language, recent_activities, main_quest, analysis_depth)
                 }
             ]
         }]
