@@ -17,6 +17,7 @@ export interface AnalysisResult {
   actions: SuggestedAction[];
   suggested_quest?: string;
   key_concepts?: string[];
+  need_full_context?: boolean;
 }
 
 export interface TaskItem {

@@ -1,5 +1,6 @@
 mod ai_engine;
 mod commands;
+mod focus_capture;
 mod frame_diff;
 mod ocr;
 mod screenshot;

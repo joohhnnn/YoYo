@@ -34,6 +34,8 @@ pub struct AnalysisResult {
     pub suggested_quest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_concepts: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub need_full_context: Option<bool>,
 }
 
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:
@@ -56,10 +58,12 @@ Respond ONLY with valid JSON, no other text:
     {"type": "open_app", "label": "Open Excel", "params": {"app": "Microsoft Excel"}},
     {"type": "open_url", "label": "Open Docs", "params": {"url": "https://example.com"}}
   ],
-  "suggested_quest": "Build the YoYo desktop assistant"
+  "suggested_quest": "Build the YoYo desktop assistant",
+  "need_full_context": false
 }
 
-The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected."#;
+The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected.
+The "need_full_context" field is OPTIONAL. Set to true ONLY if the visible content is clearly truncated at the edges and you need the full screen to analyze properly. Default is false — omit it in most cases."#;
 
 /// Returns the analysis depth instruction to prepend to the prompt.
 fn depth_instruction(depth: &str) -> &'static str {
@@ -133,6 +137,8 @@ pub fn build_full_prompt_with_history(
     analysis_depth: &str,
     ocr_text: Option<&str>,
     scene_mode: &str,
+    is_focus_crop: bool,
+    app_name: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -195,6 +201,23 @@ pub fn build_full_prompt_with_history(
         }
     }
 
+    // Focus crop context — tell AI this is a cursor-area crop, not full screen
+    if is_focus_crop {
+        let app_info = app_name
+            .map(|n| format!("Current app: {}", n))
+            .unwrap_or_default();
+        parts.push(format!(
+            "[Focus Area]\n\
+            This screenshot/text is cropped around the user's cursor position (approximate gaze area), \
+            covering approximately 800x600 points of the screen.\n\
+            {}\n\n\
+            If you see content clearly cut off at the edges that would be important for your analysis, \
+            set \"need_full_context\": true in your JSON response. Only do this when the missing content \
+            would significantly change your understanding of what the user is doing.",
+            app_info
+        ));
+    }
+
     // Scene-specific instruction (learning/working behavior)
     let scene_inst = scene_instruction(scene_mode);
     if !scene_inst.is_empty() {
@@ -221,6 +244,8 @@ pub async fn analyze_with_cli(
     ocr_text: Option<&str>,
     send_image: bool,
     scene_mode: &str,
+    is_focus_crop: bool,
+    app_name: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt_with_history(
         language,
@@ -229,6 +254,8 @@ pub async fn analyze_with_cli(
         analysis_depth,
         ocr_text,
         scene_mode,
+        is_focus_crop,
+        app_name,
     );
 
     let prompt = if send_image {
@@ -285,6 +312,8 @@ pub async fn analyze_with_api(
     ocr_text: Option<&str>,
     send_image: bool,
     scene_mode: &str,
+    is_focus_crop: bool,
+    app_name: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt_with_history(
         language,
@@ -293,6 +322,8 @@ pub async fn analyze_with_api(
         analysis_depth,
         ocr_text,
         scene_mode,
+        is_focus_crop,
+        app_name,
     );
 
     let content = if send_image {

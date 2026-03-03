@@ -1,4 +1,5 @@
 use crate::ai_engine::{self, AnalysisResult};
+use crate::focus_capture;
 use crate::ocr;
 use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
@@ -155,22 +156,17 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         }
     }
 
-    let screenshot_path = screenshot::capture_screen()?;
     let data = load_data(app);
 
-    // Run OCR on screenshot to extract text
-    let ocr_text = match ocr::recognize_text(&screenshot_path) {
-        Ok(result) => {
-            if result.text.trim().is_empty() {
-                None
-            } else {
-                Some(result.text)
-            }
-        }
-        Err(e) => {
-            eprintln!("OCR failed, falling back to image-only: {}", e);
-            None
-        }
+    // Get current app name from state
+    let current_app_name = app
+        .try_state::<AppState>()
+        .and_then(|s| s.current_app_name.lock().ok().map(|n| n.clone()))
+        .unwrap_or_default();
+    let app_name_ref = if current_app_name.is_empty() {
+        None
+    } else {
+        Some(current_app_name.as_str())
     };
 
     // Fetch recent activities for context injection
@@ -209,6 +205,37 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         _ => &data.settings.analysis_depth,
     };
 
+    // Non-deep modes: use cursor-area focus capture instead of full screen
+    let use_focus_crop = effective_depth != "deep";
+
+    let (image_path, is_focus_crop) = if use_focus_crop {
+        match focus_capture::capture_focus_area() {
+            Ok(capture) => (capture.image_path, true),
+            Err(e) => {
+                eprintln!("Focus capture failed, falling back to full screenshot: {}", e);
+                (screenshot::capture_screen()?, false)
+            }
+        }
+    } else {
+        // Deep mode: always use full screenshot
+        (screenshot::capture_screen()?, false)
+    };
+
+    // Run OCR on the captured image (focus crop or full screen)
+    let ocr_text = match ocr::recognize_text(&image_path) {
+        Ok(result) => {
+            if result.text.trim().is_empty() {
+                None
+            } else {
+                Some(result.text)
+            }
+        }
+        Err(e) => {
+            eprintln!("OCR failed, falling back to image-only: {}", e);
+            None
+        }
+    };
+
     // Decide whether to send image based on depth:
     // - casual/normal: text-only (OCR text), skip image to save tokens
     // - deep: send both OCR text + image for maximum detail
@@ -217,7 +244,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
-            &screenshot_path,
+            &image_path,
             &data.settings.api_key,
             &data.settings.model,
             &data.settings.language,
@@ -227,11 +254,13 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             ocr_text.as_deref(),
             send_image,
             scene,
+            is_focus_crop,
+            app_name_ref,
         )
         .await
     } else {
         ai_engine::analyze_with_cli(
-            &screenshot_path,
+            &image_path,
             &data.settings.model,
             &data.settings.language,
             &recent,
@@ -240,9 +269,55 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             ocr_text.as_deref(),
             send_image,
             scene,
+            is_focus_crop,
+            app_name_ref,
         )
         .await
     }?;
+
+    // If AI requested full context and we used a focus crop, do a second round
+    if is_focus_crop && result.need_full_context == Some(true) {
+        eprintln!("AI requested full context — performing second-round full screen analysis");
+        let full_screenshot = screenshot::capture_screen()?;
+        let full_ocr = match ocr::recognize_text(&full_screenshot) {
+            Ok(r) if !r.text.trim().is_empty() => Some(r.text),
+            _ => None,
+        };
+        let full_send_image = effective_depth == "deep" || full_ocr.is_none();
+
+        result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+            ai_engine::analyze_with_api(
+                &full_screenshot,
+                &data.settings.api_key,
+                &data.settings.model,
+                &data.settings.language,
+                &recent,
+                main_quest.as_deref(),
+                effective_depth,
+                full_ocr.as_deref(),
+                full_send_image,
+                scene,
+                false, // not a focus crop anymore
+                app_name_ref,
+            )
+            .await
+        } else {
+            ai_engine::analyze_with_cli(
+                &full_screenshot,
+                &data.settings.model,
+                &data.settings.language,
+                &recent,
+                main_quest.as_deref(),
+                effective_depth,
+                full_ocr.as_deref(),
+                full_send_image,
+                scene,
+                false,
+                app_name_ref,
+            )
+            .await
+        }?;
+    }
 
     // Filter out suggested_quest if it duplicates an existing active quest
     if has_active_quests {
