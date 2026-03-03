@@ -233,7 +233,7 @@ export default function BubbleApp() {
                   <svg viewBox="0 0 12 12" className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor">
                     <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
                   </svg>
-                  <span className="text-[11px] text-zinc-300 flex-1 truncate" title={quest.text}>{quest.text}</span>
+                  <span className="text-[11px] text-zinc-300 flex-1 min-w-0 truncate" title={quest.text}>{quest.text}</span>
                   {quest.target !== undefined && (
                     <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
                       {quest.progress ?? 0}/{quest.target}

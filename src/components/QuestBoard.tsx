@@ -91,7 +91,7 @@ function MainQuestSection({
                 className="w-4 h-4 rounded border border-amber-500/40 flex-shrink-0 flex items-center justify-center
                   hover:border-amber-400"
               />
-              <span className="flex-1 text-[13px] text-zinc-200 font-medium">
+              <span className="flex-1 min-w-0 truncate text-[13px] text-zinc-200 font-medium" title={quest.text}>
                 {quest.text}
               </span>
               <button
