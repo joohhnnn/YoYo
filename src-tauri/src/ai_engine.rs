@@ -32,6 +32,8 @@ pub struct AnalysisResult {
     pub actions: Vec<SuggestedAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_quest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_concepts: Option<Vec<String>>,
 }
 
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:
@@ -83,6 +85,37 @@ Focus on the user's active working area — the text cursor, input fields, activ
     }
 }
 
+/// Returns scene-specific instructions that shape AI behavior.
+fn scene_instruction(scene: &str) -> &'static str {
+    match scene {
+        "learning" => r#"[Scene: Learning Mode]
+The user is in a learning/studying session. Your primary job is to help track and record their learning.
+
+Focus on:
+- What learning material is on screen (article, docs, course, video, exercises, AI conversation about a topic)
+- Extract key concepts, terms, vocabulary, or formulas from the visible content
+- Track the learning topic and note any progression from previous activities
+- Suggest learning-oriented next actions (take notes, review earlier concepts, search related topics, do exercises)
+
+IMPORTANT: In your JSON output, include a "key_concepts" field — an array of 3-8 key terms, concepts, or vocabulary words visible on screen. Example:
+"key_concepts": ["ownership", "borrow checker", "lifetime annotations"]
+
+Do NOT suggest generic productivity actions like "Open Terminal". Keep all suggestions learning-focused."#,
+        "working" => r#"[Scene: Working Mode]
+The user is in a work/productivity session. Your primary job is to help them stay in flow and track progress.
+
+Focus on:
+- What project or task they're working on
+- What stage of their workflow (coding, debugging, testing, reviewing, writing, communicating)
+- Whether they seem stuck or context-switching frequently
+- Suggest workflow-oriented next actions (run tests, commit code, open relevant tool, check docs)
+
+Keep the "context" field brief — describe workflow state, not content details.
+Do NOT read or transcribe specific code lines, document text, or chat messages in detail. Just identify what they're doing and where they are in their workflow."#,
+        _ => "", // general mode: no scene-specific instruction
+    }
+}
+
 /// Returns the max_tokens value based on analysis depth.
 fn max_tokens_for_depth(depth: &str) -> u32 {
     match depth {
@@ -99,6 +132,7 @@ pub fn build_full_prompt_with_history(
     main_quest: Option<&str>,
     analysis_depth: &str,
     ocr_text: Option<&str>,
+    scene_mode: &str,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -152,6 +186,12 @@ pub fn build_full_prompt_with_history(
         }
     }
 
+    // Scene-specific instruction (learning/working behavior)
+    let scene_inst = scene_instruction(scene_mode);
+    if !scene_inst.is_empty() {
+        parts.push(scene_inst.to_string());
+    }
+
     // Depth-specific instruction
     parts.push(depth_instruction(analysis_depth).to_string());
 
@@ -171,6 +211,7 @@ pub async fn analyze_with_cli(
     analysis_depth: &str,
     ocr_text: Option<&str>,
     send_image: bool,
+    scene_mode: &str,
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt_with_history(
         language,
@@ -178,6 +219,7 @@ pub async fn analyze_with_cli(
         main_quest,
         analysis_depth,
         ocr_text,
+        scene_mode,
     );
 
     let prompt = if send_image {
@@ -233,6 +275,7 @@ pub async fn analyze_with_api(
     analysis_depth: &str,
     ocr_text: Option<&str>,
     send_image: bool,
+    scene_mode: &str,
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt_with_history(
         language,
@@ -240,6 +283,7 @@ pub async fn analyze_with_api(
         main_quest,
         analysis_depth,
         ocr_text,
+        scene_mode,
     );
 
     let content = if send_image {

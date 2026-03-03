@@ -8,6 +8,12 @@ const MODEL_OPTIONS = [
   { value: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Balanced" },
 ];
 
+const SCENE_OPTIONS = [
+  { value: "general", label: "通用", desc: "手动控制分析深度" },
+  { value: "learning", label: "学习", desc: "提取知识点，追踪学习路径" },
+  { value: "working", label: "工作", desc: "关注工作流，轻量记录" },
+];
+
 const DEPTH_OPTIONS = [
   { value: "casual", label: "清闲", desc: "只关注大致活动" },
   { value: "normal", label: "普通", desc: "关注焦点区域" },
@@ -63,6 +69,29 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
       {/* Scrollable settings */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
+        {/* Scene Mode */}
+        <SettingRow label="Scene">
+          <div className="flex gap-1">
+            {SCENE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => update({ scene_mode: opt.value })}
+                className={`flex-1 text-[10px] py-1 rounded transition-colors ${
+                  settings.scene_mode === opt.value
+                    ? "bg-violet-600 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[9px] text-zinc-600 mt-1">
+            {SCENE_OPTIONS.find((o) => o.value === settings.scene_mode)
+              ?.desc ?? "手动控制分析深度"}
+          </p>
+        </SettingRow>
+
         {/* AI Mode */}
         <SettingRow label="AI Mode">
           <div className="flex gap-1">
@@ -120,28 +149,30 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           </p>
         </SettingRow>
 
-        {/* Analysis Depth */}
-        <SettingRow label="Analysis Depth">
-          <div className="flex gap-1">
-            {DEPTH_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => update({ analysis_depth: opt.value })}
-                className={`flex-1 text-[10px] py-1 rounded transition-colors ${
-                  settings.analysis_depth === opt.value
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[9px] text-zinc-600 mt-1">
-            {DEPTH_OPTIONS.find((o) => o.value === settings.analysis_depth)
-              ?.desc ?? "关注焦点区域"}
-          </p>
-        </SettingRow>
+        {/* Analysis Depth — only shown in general mode */}
+        {settings.scene_mode === "general" && (
+          <SettingRow label="Analysis Depth">
+            <div className="flex gap-1">
+              {DEPTH_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => update({ analysis_depth: opt.value })}
+                  className={`flex-1 text-[10px] py-1 rounded transition-colors ${
+                    settings.analysis_depth === opt.value
+                      ? "bg-blue-600 text-white"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-1">
+              {DEPTH_OPTIONS.find((o) => o.value === settings.analysis_depth)
+                ?.desc ?? "关注焦点区域"}
+            </p>
+          </SettingRow>
+        )}
 
         {/* Language */}
         <SettingRow label="Language">

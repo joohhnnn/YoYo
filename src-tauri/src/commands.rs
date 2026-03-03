@@ -31,6 +31,8 @@ pub struct Settings {
     pub auto_analyze: bool,
     #[serde(default = "default_analysis_depth")]
     pub analysis_depth: String, // "casual" | "normal" | "deep"
+    #[serde(default = "default_scene_mode")]
+    pub scene_mode: String, // "general" | "learning" | "working"
 }
 
 fn default_model() -> String {
@@ -53,6 +55,10 @@ fn default_analysis_depth() -> String {
     "normal".to_string()
 }
 
+fn default_scene_mode() -> String {
+    "general".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -66,6 +72,7 @@ impl Default for Settings {
             language: "zh".to_string(),
             auto_analyze: true,
             analysis_depth: "normal".to_string(),
+            scene_mode: "general".to_string(),
         }
     }
 }
@@ -190,13 +197,23 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     let has_active_quests = !main_quests.is_empty();
 
-    let depth = &data.settings.analysis_depth;
+    let scene = &data.settings.scene_mode;
+
+    // Scene auto-determines effective depth:
+    // - learning → deep (need to read all content)
+    // - working → casual (just track workflow)
+    // - general → user's manual depth setting
+    let effective_depth = match scene.as_str() {
+        "learning" => "deep",
+        "working" => "casual",
+        _ => &data.settings.analysis_depth,
+    };
 
     // Decide whether to send image based on depth:
     // - casual/normal: text-only (OCR text), skip image to save tokens
     // - deep: send both OCR text + image for maximum detail
     // - fallback: if OCR failed (no text), always send image
-    let send_image = depth == "deep" || ocr_text.is_none();
+    let send_image = effective_depth == "deep" || ocr_text.is_none();
 
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
@@ -206,9 +223,10 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
-            depth,
+            effective_depth,
             ocr_text.as_deref(),
             send_image,
+            scene,
         )
         .await
     } else {
@@ -218,9 +236,10 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
-            depth,
+            effective_depth,
             ocr_text.as_deref(),
             send_image,
+            scene,
         )
         .await
     }?;

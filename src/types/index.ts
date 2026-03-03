@@ -16,6 +16,7 @@ export interface AnalysisResult {
   context: string;
   actions: SuggestedAction[];
   suggested_quest?: string;
+  key_concepts?: string[];
 }
 
 export interface TaskItem {
@@ -38,6 +39,7 @@ export interface Settings {
   language: string;
   auto_analyze: boolean;
   analysis_depth: string; // "casual" | "normal" | "deep"
+  scene_mode: string; // "general" | "learning" | "working"
 }
 
 export interface AppSwitchEvent {
