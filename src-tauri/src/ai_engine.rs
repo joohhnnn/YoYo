@@ -173,14 +173,16 @@ pub fn build_full_prompt_with_history(
         parts.push(history_lines.join("\n"));
     }
 
-    // Inject main quests — allow AI to suggest new quests for different projects
+    // Inject main quests — detect direction changes and ask about new quests
     if let Some(quest) = main_quest {
         parts.push(format!(
             "[Current Main Quests]\nThe user's active main goals:\n- {}\n\
             Prioritize suggesting actions that help achieve these quests.\n\
-            IMPORTANT: If the user appears to be working on a DIFFERENT project or goal that is NOT covered by any existing quest above, \
-            you SHOULD suggest it as a new quest via \"suggested_quest\". \
-            Do NOT re-suggest quests that already exist. Only suggest genuinely new, distinct projects.",
+            IMPORTANT: If the user's current activity seems UNRELATED to any existing quest above, \
+            do NOT force-fit it into an existing quest. Instead:\n\
+            1. Describe what the user is ACTUALLY doing in the \"context\" field (be accurate, not forced)\n\
+            2. Suggest the new direction as \"suggested_quest\" — phrase it as a question, e.g. \"为 Reth 项目做贡献？\" or \"学习 Rust 异步编程？\"\n\
+            Do NOT re-suggest quests that already exist. Only suggest genuinely new, distinct directions.",
             quest
         ));
     }
