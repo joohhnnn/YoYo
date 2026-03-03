@@ -1,5 +1,6 @@
 mod ai_engine;
 mod commands;
+mod frame_diff;
 mod screenshot;
 mod user_data;
 mod window_monitor;
@@ -109,6 +110,23 @@ pub fn run() {
                     // Check if auto-analyze is enabled
                     if !commands::get_auto_analyze(&app) {
                         return;
+                    }
+
+                    // Quick screen change detection: take 2 frames 500ms apart.
+                    // If screen is changing rapidly (typing, scrolling), wait 2s more.
+                    match frame_diff::is_screen_changing(12) {
+                        Ok(true) => {
+                            // Screen is actively changing — wait a bit more
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            // Re-check debounce (user may have switched apps during the wait)
+                            if state.debounce_counter.load(Ordering::Relaxed) != my_counter {
+                                return;
+                            }
+                        }
+                        Ok(false) => {} // Screen is calm, proceed
+                        Err(e) => {
+                            eprintln!("Screen change detection failed, proceeding: {}", e);
+                        }
                     }
 
                     // Check cooldown against last completed analysis
