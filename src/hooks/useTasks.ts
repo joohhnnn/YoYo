@@ -18,13 +18,6 @@ export function useTasks() {
 
   const addTask = useCallback(
     (text: string, questType: "main" | "side" = "side", target?: number) => {
-      // If adding a main quest, demote existing main quests to side
-      let current = tasks;
-      if (questType === "main") {
-        current = tasks.map((t) =>
-          t.quest_type === "main" ? { ...t, quest_type: "side" as const } : t
-        );
-      }
       const newTask: TaskItem = {
         id: crypto.randomUUID(),
         text,
@@ -33,7 +26,7 @@ export function useTasks() {
         progress: target !== undefined ? 0 : undefined,
         target,
       };
-      const updated = [...current, newTask];
+      const updated = [...tasks, newTask];
       persist(updated);
     },
     [tasks, persist]

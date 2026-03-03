@@ -16,16 +16,16 @@ export function QuestBoard({
   onRemove,
   onUpdateProgress,
 }: QuestBoardProps) {
-  const mainQuest = tasks.find((t) => t.quest_type === "main" && !t.done);
+  const mainQuests = tasks.filter((t) => t.quest_type === "main" && !t.done);
   const sideQuests = tasks.filter(
     (t) => t.quest_type === "side" || (t.quest_type === "main" && t.done)
   );
 
   return (
     <div className="px-3 py-2 space-y-3">
-      {/* Main Quest */}
-      <MainQuestCard
-        quest={mainQuest}
+      {/* Main Quests */}
+      <MainQuestSection
+        quests={mainQuests}
         onToggle={onToggle}
         onRemove={onRemove}
         onUpdateProgress={onUpdateProgress}
@@ -43,14 +43,14 @@ export function QuestBoard({
   );
 }
 
-function MainQuestCard({
-  quest,
+function MainQuestSection({
+  quests,
   onToggle,
   onRemove,
   onUpdateProgress,
   onAdd,
 }: {
-  quest: TaskItem | undefined;
+  quests: TaskItem[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onUpdateProgress: (id: string, progress: number) => void;
@@ -79,78 +79,81 @@ function MainQuestCard({
         <svg viewBox="0 0 12 12" className="w-3 h-3" fill="currentColor">
           <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
         </svg>
-        Main Quest
+        Main Quests
       </div>
 
-      {quest ? (
-        <div className="bg-amber-500/[0.08] border border-amber-500/20 rounded-lg px-3 py-2 group">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onToggle(quest.id)}
-              className="w-4 h-4 rounded border border-amber-500/40 flex-shrink-0 flex items-center justify-center
-                hover:border-amber-400"
-            />
-            <span className="flex-1 text-[13px] text-zinc-200 font-medium">
-              {quest.text}
-            </span>
-            <button
-              onClick={() => onRemove(quest.id)}
-              className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 text-xs"
-            >
-              x
-            </button>
-          </div>
-
-          {/* Progress bar */}
-          {quest.target !== undefined && (
-            <div className="mt-2">
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-amber-500 rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        ((quest.progress ?? 0) / quest.target) * 100
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <span className="text-[10px] text-zinc-400 tabular-nums">
-                  {quest.progress ?? 0}/{quest.target}
-                </span>
-              </div>
-              <div className="flex gap-1 mt-1.5">
-                <button
-                  onClick={() =>
-                    onUpdateProgress(
-                      quest.id,
-                      Math.max(0, (quest.progress ?? 0) - 1)
-                    )
-                  }
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                >
-                  -1
-                </button>
-                <button
-                  onClick={() =>
-                    onUpdateProgress(quest.id, (quest.progress ?? 0) + 1)
-                  }
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
-                >
-                  +1
-                </button>
-              </div>
+      <div className="space-y-1.5">
+        {quests.map((quest) => (
+          <div key={quest.id} className="bg-amber-500/[0.08] border border-amber-500/20 rounded-lg px-3 py-2 group">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onToggle(quest.id)}
+                className="w-4 h-4 rounded border border-amber-500/40 flex-shrink-0 flex items-center justify-center
+                  hover:border-amber-400"
+              />
+              <span className="flex-1 text-[13px] text-zinc-200 font-medium">
+                {quest.text}
+              </span>
+              <button
+                onClick={() => onRemove(quest.id)}
+                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 text-xs"
+              >
+                x
+              </button>
             </div>
-          )}
-        </div>
-      ) : adding ? (
-        <form onSubmit={handleSubmit} className="space-y-1.5">
+
+            {quest.target !== undefined && (
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          ((quest.progress ?? 0) / quest.target) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-zinc-400 tabular-nums">
+                    {quest.progress ?? 0}/{quest.target}
+                  </span>
+                </div>
+                <div className="flex gap-1 mt-1.5">
+                  <button
+                    onClick={() =>
+                      onUpdateProgress(
+                        quest.id,
+                        Math.max(0, (quest.progress ?? 0) - 1)
+                      )
+                    }
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                  >
+                    -1
+                  </button>
+                  <button
+                    onClick={() =>
+                      onUpdateProgress(quest.id, (quest.progress ?? 0) + 1)
+                    }
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                  >
+                    +1
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {adding ? (
+        <form onSubmit={handleSubmit} className="space-y-1.5 mt-1.5">
           <input
             autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="What's today's main quest?"
+            placeholder="What's your next main quest?"
             className="w-full px-2 py-1.5 text-[12px] bg-zinc-800 border border-amber-500/30 rounded
               text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
           />
@@ -170,7 +173,7 @@ function MainQuestCard({
               type="submit"
               className="px-2 py-1 text-[11px] bg-amber-600 hover:bg-amber-500 rounded text-white"
             >
-              Set
+              Add
             </button>
             <button
               type="button"
@@ -184,10 +187,10 @@ function MainQuestCard({
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="w-full py-2 text-[11px] text-zinc-500 hover:text-amber-400 border border-dashed
+          className="w-full py-2 mt-1.5 text-[11px] text-zinc-500 hover:text-amber-400 border border-dashed
             border-zinc-700 hover:border-amber-500/30 rounded-lg transition-colors"
         >
-          + Set main quest
+          + Add main quest
         </button>
       )}
     </div>

@@ -15,6 +15,7 @@ export interface SuggestedAction {
 export interface AnalysisResult {
   context: string;
   actions: SuggestedAction[];
+  suggested_quest?: string;
 }
 
 export interface TaskItem {

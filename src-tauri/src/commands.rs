@@ -146,20 +146,28 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     // Fetch recent activities for context injection
     let recent = user_data::get_recent_activities(30).unwrap_or_default();
 
-    // Extract active main quest for prompt injection
-    let main_quest = data
+    // Extract all active main quests for prompt injection
+    let main_quests: Vec<String> = data
         .tasks
         .iter()
-        .find(|t| t.quest_type == "main" && !t.done)
+        .filter(|t| t.quest_type == "main" && !t.done)
         .map(|t| {
             if let (Some(progress), Some(target)) = (t.progress, t.target) {
                 format!("{} ({}/{})", t.text, progress, target)
             } else {
                 t.text.clone()
             }
-        });
+        })
+        .collect();
+    let main_quest = if main_quests.is_empty() {
+        None
+    } else {
+        Some(main_quests.join("\n- "))
+    };
 
-    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+    let has_active_quests = !main_quests.is_empty();
+
+    let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
             &screenshot_path,
             &data.settings.api_key,
@@ -178,7 +186,14 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             main_quest.as_deref(),
         )
         .await
+    }?;
+
+    // Strip suggested_quest if user already has active main quests
+    if has_active_quests {
+        result.suggested_quest = None;
     }
+
+    Ok(result)
 }
 
 /// Read the analysis cooldown from persisted settings.

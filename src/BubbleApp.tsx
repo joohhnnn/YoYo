@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { ActionButtons } from "./components/ActionButtons";
 import { ChatView } from "./components/ChatView";
@@ -9,6 +10,7 @@ import {
   startOnboarding,
   sendOnboardingMessage,
 } from "./services/onboarding";
+import { getTasks, saveTasks } from "./services/storage";
 import type { AnalysisResult, ChatMessage, Settings, SuggestedAction, TaskItem } from "./types";
 
 type BubbleMode = "normal" | "chat";
@@ -26,8 +28,11 @@ export default function BubbleApp() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Main quest
-  const [mainQuest, setMainQuest] = useState<TaskItem | null>(null);
+  // Main quests (multiple)
+  const [mainQuests, setMainQuests] = useState<TaskItem[]>([]);
+
+  // AI-suggested quest (pending user confirmation)
+  const [suggestedQuest, setSuggestedQuest] = useState<string | null>(null);
 
   useEffect(() => {
     // Load opacity setting
@@ -35,10 +40,9 @@ export default function BubbleApp() {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
     });
 
-    // Load main quest
+    // Load main quests
     invoke<TaskItem[]>("get_tasks").then((tasks) => {
-      const main = tasks.find((t) => t.quest_type === "main" && !t.done);
-      setMainQuest(main ?? null);
+      setMainQuests(tasks.filter((t) => t.quest_type === "main" && !t.done));
     });
 
     // Check if onboarding is needed
@@ -78,6 +82,10 @@ export default function BubbleApp() {
         setResult(event.payload);
         setVisible(true);
         setRefreshing(false);
+        // Show suggested quest if AI detected a goal
+        if (event.payload.suggested_quest) {
+          setSuggestedQuest(event.payload.suggested_quest);
+        }
       }
     );
 
@@ -91,11 +99,10 @@ export default function BubbleApp() {
       setMode("normal");
     });
 
-    // Refresh main quest when tasks change
+    // Refresh main quests when tasks change
     const unlistenTasks = listen("tasks-changed", () => {
       invoke<TaskItem[]>("get_tasks").then((tasks) => {
-        const main = tasks.find((t) => t.quest_type === "main" && !t.done);
-        setMainQuest(main ?? null);
+        setMainQuests(tasks.filter((t) => t.quest_type === "main" && !t.done));
       });
     });
 
@@ -130,6 +137,26 @@ export default function BubbleApp() {
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleAcceptQuest = async () => {
+    if (!suggestedQuest) return;
+    const current = await getTasks();
+    const newTask: TaskItem = {
+      id: crypto.randomUUID(),
+      text: suggestedQuest,
+      done: false,
+      quest_type: "main",
+    };
+    const updated = [...current, newTask];
+    await saveTasks(updated);
+    emit("tasks-changed").catch(() => {});
+    setMainQuests((prev) => [...prev, newTask]);
+    setSuggestedQuest(null);
+  };
+
+  const handleDismissQuest = () => {
+    setSuggestedQuest(null);
   };
 
   // Chat mode: always show
@@ -198,29 +225,61 @@ export default function BubbleApp() {
         </div>
 
         {/* Main Quest Tracker */}
-        {mainQuest && (
-          <div className="mx-4 px-2.5 py-1.5 mb-2 bg-amber-500/[0.06] border border-amber-500/15 rounded-lg">
-            <div className="flex items-center gap-1.5">
-              <svg viewBox="0 0 12 12" className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor">
-                <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
-              </svg>
-              <span className="text-[11px] text-zinc-300 flex-1 truncate">{mainQuest.text}</span>
-              {mainQuest.target !== undefined && (
-                <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
-                  {mainQuest.progress ?? 0}/{mainQuest.target}
-                </span>
-              )}
-            </div>
-            {mainQuest.target !== undefined && (
-              <div className="mt-1 h-1 bg-black/30 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-500/70 rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(100, ((mainQuest.progress ?? 0) / mainQuest.target) * 100)}%`,
-                  }}
-                />
+        {mainQuests.length > 0 && (
+          <div className="mx-4 mb-2 space-y-1">
+            {mainQuests.map((quest) => (
+              <div key={quest.id} className="px-2.5 py-1.5 bg-amber-500/[0.06] border border-amber-500/15 rounded-lg">
+                <div className="flex items-center gap-1.5">
+                  <svg viewBox="0 0 12 12" className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor">
+                    <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
+                  </svg>
+                  <span className="text-[11px] text-zinc-300 flex-1 truncate">{quest.text}</span>
+                  {quest.target !== undefined && (
+                    <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
+                      {quest.progress ?? 0}/{quest.target}
+                    </span>
+                  )}
+                </div>
+                {quest.target !== undefined && (
+                  <div className="mt-1 h-1 bg-black/30 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500/70 rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(100, ((quest.progress ?? 0) / quest.target) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                )}
               </div>
-            )}
+            ))}
+          </div>
+        )}
+
+        {/* Suggested Quest (compact inline) */}
+        {suggestedQuest && (
+          <div className="mx-4 px-2.5 py-1.5 mb-2 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg flex items-center gap-1.5">
+            <svg viewBox="0 0 12 12" className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M6 1.5a2.5 2.5 0 012.5 2.5c0 1.2-.8 1.8-1.2 2.3-.3.3-.5.6-.5 1v.2M6 9.5v.5" strokeLinecap="round" />
+            </svg>
+            <span className="text-[11px] text-zinc-300 flex-1 truncate">{suggestedQuest}</span>
+            <button
+              onClick={handleAcceptQuest}
+              className="p-0.5 text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0"
+              title="Accept as main quest"
+            >
+              <svg viewBox="0 0 12 12" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2.5 6l2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              onClick={handleDismissQuest}
+              className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+              title="Dismiss"
+            >
+              <svg viewBox="0 0 12 12" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 3l6 6M9 3l-6 6" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
         )}
 

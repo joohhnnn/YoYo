@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { register } from "@tauri-apps/plugin-global-shortcut";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { StatusIndicator } from "./components/StatusIndicator";
@@ -7,12 +8,14 @@ import { QuestBoard } from "./components/QuestBoard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { useScreenContext } from "./hooks/useScreenContext";
 import { useTasks } from "./hooks/useTasks";
+import type { AnalysisResult } from "./types";
 
 export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
   const { tasks, addTask, toggleTask, removeTask, updateProgress } =
     useTasks();
   const [showSettings, setShowSettings] = useState(false);
+  const [suggestedQuest, setSuggestedQuest] = useState<string | null>(null);
 
   useEffect(() => {
     const registerShortcuts = async () => {
@@ -43,6 +46,20 @@ export default function TrayApp() {
     };
 
     registerShortcuts();
+
+    // Listen for suggested quest from analysis
+    const unlistenAnalysis = listen<AnalysisResult>(
+      "analysis-complete",
+      (event) => {
+        if (event.payload.suggested_quest) {
+          setSuggestedQuest(event.payload.suggested_quest);
+        }
+      }
+    );
+
+    return () => {
+      unlistenAnalysis.then((fn) => fn());
+    };
   }, []);
 
   if (showSettings) {
@@ -99,6 +116,37 @@ export default function TrayApp() {
         </div>
 
         <div className="border-t border-zinc-800" />
+
+        {/* Suggested Quest */}
+        {suggestedQuest && (
+          <div className="mx-3 mt-2 px-3 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg flex items-center gap-2">
+            <svg viewBox="0 0 12 12" className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M6 1.5a2.5 2.5 0 012.5 2.5c0 1.2-.8 1.8-1.2 2.3-.3.3-.5.6-.5 1v.2M6 9.5v.5" strokeLinecap="round" />
+            </svg>
+            <span className="text-[12px] text-zinc-300 flex-1 truncate">{suggestedQuest}</span>
+            <button
+              onClick={() => {
+                addTask(suggestedQuest, "main");
+                setSuggestedQuest(null);
+              }}
+              className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0"
+              title="Accept as main quest"
+            >
+              <svg viewBox="0 0 12 12" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2.5 6l2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setSuggestedQuest(null)}
+              className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+              title="Dismiss"
+            >
+              <svg viewBox="0 0 12 12" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 3l6 6M9 3l-6 6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Quest Board */}
         <QuestBoard

@@ -30,12 +30,15 @@ pub struct SuggestedAction {
 pub struct AnalysisResult {
     pub context: String,
     pub actions: Vec<SuggestedAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_quest: Option<String>,
 }
 
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:
 
 1. What is the user currently doing? (1 sentence)
 2. Suggest 2-4 most likely next actions the user might want to take.
+3. If you detect a clear goal or project the user is working on (e.g., "building a web app", "studying for exam", "writing a report"), suggest it as a main quest. Only suggest when you're confident about the user's goal. Do NOT suggest if the user is just browsing or doing miscellaneous tasks.
 
 Each action must use one of these types:
 - open_url: Open a URL (provide the url in params)
@@ -50,8 +53,11 @@ Respond ONLY with valid JSON, no other text:
   "actions": [
     {"type": "open_app", "label": "Open Excel", "params": {"app": "Microsoft Excel"}},
     {"type": "open_url", "label": "Open Docs", "params": {"url": "https://example.com"}}
-  ]
-}"#;
+  ],
+  "suggested_quest": "Build the YoYo desktop assistant"
+}
+
+The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected."#;
 
 /// Build the full prompt with activity history for observation mode.
 pub fn build_full_prompt_with_history(
@@ -98,9 +104,9 @@ pub fn build_full_prompt_with_history(
         parts.push(history_lines.join("\n"));
     }
 
-    // Inject main quest if set
+    // Inject main quests if set — and suppress quest suggestions when quests are active
     if let Some(quest) = main_quest {
-        parts.push(format!("[Main Quest]\nThe user's current main goal: {}\nPrioritize suggesting actions that help achieve this quest.", quest));
+        parts.push(format!("[Current Main Quests]\nThe user's active main goals:\n- {}\nPrioritize suggesting actions that help achieve these quests. The user already has active main quests, so do NOT include the \"suggested_quest\" field in your response.", quest));
     }
 
     parts.push(ANALYSIS_PROMPT.to_string());
