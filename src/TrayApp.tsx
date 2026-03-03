@@ -3,14 +3,15 @@ import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { StatusIndicator } from "./components/StatusIndicator";
-import { TaskList } from "./components/TaskList";
+import { QuestBoard } from "./components/QuestBoard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { useScreenContext } from "./hooks/useScreenContext";
 import { useTasks } from "./hooks/useTasks";
 
 export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
-  const { tasks, addTask, toggleTask, removeTask } = useTasks();
+  const { tasks, addTask, toggleTask, removeTask, updateProgress } =
+    useTasks();
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -99,12 +100,13 @@ export default function TrayApp() {
 
         <div className="border-t border-zinc-800" />
 
-        {/* Tasks */}
-        <TaskList
+        {/* Quest Board */}
+        <QuestBoard
           tasks={tasks}
           onToggle={toggleTask}
           onAdd={addTask}
           onRemove={removeTask}
+          onUpdateProgress={updateProgress}
         />
       </div>
     </div>

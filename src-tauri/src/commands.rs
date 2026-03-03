@@ -67,6 +67,16 @@ pub struct TaskItem {
     pub id: String,
     pub text: String,
     pub done: bool,
+    #[serde(default = "default_quest_type")]
+    pub quest_type: String, // "main" or "side"
+    #[serde(default)]
+    pub progress: Option<u32>,
+    #[serde(default)]
+    pub target: Option<u32>,
+}
+
+fn default_quest_type() -> String {
+    "side".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -136,6 +146,19 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     // Fetch recent activities for context injection
     let recent = user_data::get_recent_activities(30).unwrap_or_default();
 
+    // Extract active main quest for prompt injection
+    let main_quest = data
+        .tasks
+        .iter()
+        .find(|t| t.quest_type == "main" && !t.done)
+        .map(|t| {
+            if let (Some(progress), Some(target)) = (t.progress, t.target) {
+                format!("{} ({}/{})", t.text, progress, target)
+            } else {
+                t.text.clone()
+            }
+        });
+
     if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
             &screenshot_path,
@@ -143,6 +166,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.model,
             &data.settings.language,
             &recent,
+            main_quest.as_deref(),
         )
         .await
     } else {
@@ -151,6 +175,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.model,
             &data.settings.language,
             &recent,
+            main_quest.as_deref(),
         )
         .await
     }

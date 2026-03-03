@@ -9,7 +9,7 @@ import {
   startOnboarding,
   sendOnboardingMessage,
 } from "./services/onboarding";
-import type { AnalysisResult, ChatMessage, Settings, SuggestedAction } from "./types";
+import type { AnalysisResult, ChatMessage, Settings, SuggestedAction, TaskItem } from "./types";
 
 type BubbleMode = "normal" | "chat";
 
@@ -26,10 +26,19 @@ export default function BubbleApp() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Main quest
+  const [mainQuest, setMainQuest] = useState<TaskItem | null>(null);
+
   useEffect(() => {
     // Load opacity setting
     invoke<Settings>("get_settings").then((s) => {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
+    });
+
+    // Load main quest
+    invoke<TaskItem[]>("get_tasks").then((tasks) => {
+      const main = tasks.find((t) => t.quest_type === "main" && !t.done);
+      setMainQuest(main ?? null);
     });
 
     // Check if onboarding is needed
@@ -82,11 +91,20 @@ export default function BubbleApp() {
       setMode("normal");
     });
 
+    // Refresh main quest when tasks change
+    const unlistenTasks = listen("tasks-changed", () => {
+      invoke<TaskItem[]>("get_tasks").then((tasks) => {
+        const main = tasks.find((t) => t.quest_type === "main" && !t.done);
+        setMainQuest(main ?? null);
+      });
+    });
+
     return () => {
       unlistenSwitch.then((fn) => fn());
       unlistenAnalysis.then((fn) => fn());
       unlistenOpacity.then((fn) => fn());
       unlistenOnboarding.then((fn) => fn());
+      unlistenTasks.then((fn) => fn());
     };
   }, []);
 
@@ -178,6 +196,33 @@ export default function BubbleApp() {
         <div className="px-4 pb-2">
           <p className="text-[13px] text-zinc-300 leading-snug">{result.context}</p>
         </div>
+
+        {/* Main Quest Tracker */}
+        {mainQuest && (
+          <div className="mx-4 px-2.5 py-1.5 mb-2 bg-amber-500/[0.06] border border-amber-500/15 rounded-lg">
+            <div className="flex items-center gap-1.5">
+              <svg viewBox="0 0 12 12" className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor">
+                <path d="M6 1l1.5 3.2L11 4.7 8.5 7.1l.6 3.4L6 8.8 2.9 10.5l.6-3.4L1 4.7l3.5-.5z" />
+              </svg>
+              <span className="text-[11px] text-zinc-300 flex-1 truncate">{mainQuest.text}</span>
+              {mainQuest.target !== undefined && (
+                <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0">
+                  {mainQuest.progress ?? 0}/{mainQuest.target}
+                </span>
+              )}
+            </div>
+            {mainQuest.target !== undefined && (
+              <div className="mt-1 h-1 bg-black/30 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500/70 rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, ((mainQuest.progress ?? 0) / mainQuest.target) * 100)}%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Separator */}
         <div className="mx-4 border-t border-white/[0.06]" />

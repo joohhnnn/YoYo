@@ -21,6 +21,9 @@ export interface TaskItem {
   id: string;
   text: string;
   done: boolean;
+  quest_type: "main" | "side";
+  progress?: number;
+  target?: number;
 }
 
 export interface Settings {

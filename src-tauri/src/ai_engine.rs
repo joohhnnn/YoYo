@@ -57,6 +57,7 @@ Respond ONLY with valid JSON, no other text:
 pub fn build_full_prompt_with_history(
     language: &str,
     recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -97,6 +98,11 @@ pub fn build_full_prompt_with_history(
         parts.push(history_lines.join("\n"));
     }
 
+    // Inject main quest if set
+    if let Some(quest) = main_quest {
+        parts.push(format!("[Main Quest]\nThe user's current main goal: {}\nPrioritize suggesting actions that help achieve this quest.", quest));
+    }
+
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
@@ -108,12 +114,13 @@ pub async fn analyze_with_cli(
     model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let path_str = screenshot_path
         .to_str()
         .ok_or("Invalid screenshot path")?;
 
-    let full_prompt = build_full_prompt_with_history(language, recent_activities);
+    let full_prompt = build_full_prompt_with_history(language, recent_activities, main_quest);
     let prompt = format!(
         "Read the screenshot image at '{}' and analyze it.\n\n{}",
         path_str, full_prompt
@@ -148,6 +155,7 @@ pub async fn analyze_with_api(
     model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let image_data = std::fs::read(screenshot_path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
@@ -170,7 +178,7 @@ pub async fn analyze_with_api(
                 },
                 {
                     "type": "text",
-                    "text": build_full_prompt_with_history(language, recent_activities)
+                    "text": build_full_prompt_with_history(language, recent_activities, main_quest)
                 }
             ]
         }]
