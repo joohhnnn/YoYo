@@ -1,3 +1,4 @@
+use crate::accessibility;
 use crate::ai_engine::{self, AnalysisResult};
 use crate::focus_capture;
 use crate::ocr;
@@ -5,6 +6,7 @@ use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
 use crate::window_list;
 use crate::AppState;
+use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -230,18 +232,52 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         (screenshot::capture_screen()?, false)
     };
 
-    // Run OCR on the captured image (focus crop or full screen)
-    let ocr_text = match ocr::recognize_text(&image_path) {
-        Ok(result) => {
-            if result.text.trim().is_empty() {
-                None
-            } else {
+    // Text extraction: try Accessibility API first, then fall back to OCR
+    let current_pid = app
+        .try_state::<AppState>()
+        .map(|s| s.current_app_pid.load(Ordering::Relaxed) as i32)
+        .unwrap_or(0);
+
+    let ax_text = if current_pid > 0 {
+        match accessibility::extract_text(current_pid) {
+            Ok(result) if !result.text.trim().is_empty() => {
+                eprintln!(
+                    "AX extracted {} nodes, {} chars from {}",
+                    result.node_count,
+                    result.text.len(),
+                    result.app_name
+                );
                 Some(result.text)
             }
+            Ok(_) => {
+                eprintln!("AX returned empty text, falling back to OCR");
+                None
+            }
+            Err(e) => {
+                eprintln!("AX extraction failed ({}), falling back to OCR", e);
+                None
+            }
         }
-        Err(e) => {
-            eprintln!("OCR failed, falling back to image-only: {}", e);
-            None
+    } else {
+        None
+    };
+
+    // Use AX text if available, otherwise fall back to OCR
+    let ocr_text = if ax_text.is_some() {
+        ax_text
+    } else {
+        match ocr::recognize_text(&image_path) {
+            Ok(result) => {
+                if result.text.trim().is_empty() {
+                    None
+                } else {
+                    Some(result.text)
+                }
+            }
+            Err(e) => {
+                eprintln!("OCR failed, falling back to image-only: {}", e);
+                None
+            }
         }
     };
 

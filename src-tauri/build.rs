@@ -52,5 +52,27 @@ fn main() {
         .expect("swiftc is required — install Xcode Command Line Tools");
     assert!(status.success(), "Failed to compile Swift window list helper");
 
+    // Compile Swift accessibility helper binary
+    let ax_binary = format!("{}/yoyo-ax", out_dir);
+    println!("cargo:rerun-if-changed=swift/accessibility.swift");
+    println!("cargo:rustc-env=YOYO_AX_BINARY={}", ax_binary);
+
+    let status = std::process::Command::new("swiftc")
+        .args([
+            "swift/accessibility.swift",
+            "-o",
+            &ax_binary,
+            "-O",
+            "-framework",
+            "AppKit",
+            "-framework",
+            "ApplicationServices",
+            "-framework",
+            "CoreGraphics",
+        ])
+        .status()
+        .expect("swiftc is required — install Xcode Command Line Tools");
+    assert!(status.success(), "Failed to compile Swift accessibility helper");
+
     tauri_build::build()
 }

@@ -1,3 +1,4 @@
+mod accessibility;
 mod ai_engine;
 mod commands;
 mod focus_capture;
@@ -27,6 +28,7 @@ pub struct AppState {
     // Current foreground app (updated on app-switch)
     pub current_app_name: Mutex<String>,
     pub current_bundle_id: Mutex<String>,
+    pub current_app_pid: AtomicI64,
     // Observation mode: count new activities since last reflection
     pub activities_since_reflection: AtomicI64,
     // Onboarding state
@@ -46,6 +48,7 @@ pub fn run() {
             last_analysis_time: AtomicI64::new(0),
             current_app_name: Mutex::new(String::new()),
             current_bundle_id: Mutex::new(String::new()),
+            current_app_pid: AtomicI64::new(0),
             activities_since_reflection: AtomicI64::new(0),
             onboarding_active: Mutex::new(false),
             onboarding_history: Mutex::new(Vec::new()),
@@ -94,6 +97,9 @@ pub fn run() {
                     if let Ok(mut bid) = state.current_bundle_id.lock() {
                         *bid = payload.bundle_id;
                     }
+                    state
+                        .current_app_pid
+                        .store(payload.pid as i64, Ordering::Relaxed);
                 }
 
                 // Increment counter; only the latest event will match after debounce

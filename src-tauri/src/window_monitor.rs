@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct AppSwitchEvent {
     pub app_name: String,
     pub bundle_id: String,
+    pub pid: i32,
 }
 
 /// Start monitoring for application switch events on macOS.
@@ -55,6 +56,8 @@ pub fn start_monitoring(app_handle: AppHandle) {
                             .map(|b| b.to_string())
                             .unwrap_or_else(|| "unknown".to_string());
 
+                        let pid = app.processIdentifier();
+
                         // Skip our own app
                         if bundle_id == "com.yoyo.app" {
                             return;
@@ -63,6 +66,7 @@ pub fn start_monitoring(app_handle: AppHandle) {
                         let event = AppSwitchEvent {
                             app_name,
                             bundle_id,
+                            pid,
                         };
 
                         let _ = app_handle_clone.emit("app-switched", event);
