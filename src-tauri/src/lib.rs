@@ -5,6 +5,7 @@ mod frame_diff;
 mod ocr;
 mod screenshot;
 mod user_data;
+mod window_list;
 mod window_monitor;
 
 use crate::ai_engine::AnalysisResult;

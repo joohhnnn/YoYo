@@ -46,7 +46,7 @@ const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Bas
 
 Each action must use one of these types:
 - open_url: Open a URL (provide the url in params)
-- open_app: Switch to an app (provide the app name in params)
+- open_app: Switch to an app (provide the bundle_id in params.app, e.g. "com.apple.Safari"). If an [Open Windows] section is provided, use the exact bundle_id listed there.
 - copy_to_clipboard: Copy detected text/data (provide the text in params)
 - run_command: Run a terminal command (provide the command in params)
 - notify: Set a reminder (provide the message in params)
@@ -55,7 +55,7 @@ Respond ONLY with valid JSON, no other text:
 {
   "context": "User is ...",
   "actions": [
-    {"type": "open_app", "label": "Open Excel", "params": {"app": "Microsoft Excel"}},
+    {"type": "open_app", "label": "Open Excel", "params": {"app": "com.microsoft.Excel"}},
     {"type": "open_url", "label": "Open Docs", "params": {"url": "https://example.com"}}
   ],
   "suggested_quest": "Build the YoYo desktop assistant",
@@ -139,6 +139,7 @@ pub fn build_full_prompt_with_history(
     scene_mode: &str,
     is_focus_crop: bool,
     app_name: Option<&str>,
+    open_windows: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -201,6 +202,20 @@ pub fn build_full_prompt_with_history(
         }
     }
 
+    // Inject open windows list so AI knows what apps are available
+    if let Some(windows) = open_windows {
+        if !windows.is_empty() {
+            parts.push(format!(
+                "[Open Windows]\n\
+                The following windows are currently open on the user's screen:\n\
+                {}\n\n\
+                When suggesting \"open_app\" actions, use the exact bundle_id from above as the \"app\" parameter.\n\
+                Only suggest switching to apps that are actually listed here.",
+                windows
+            ));
+        }
+    }
+
     // Focus crop context — tell AI this is a cursor-area crop, not full screen
     if is_focus_crop {
         let app_info = app_name
@@ -246,6 +261,7 @@ pub async fn analyze_with_cli(
     scene_mode: &str,
     is_focus_crop: bool,
     app_name: Option<&str>,
+    open_windows: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt_with_history(
         language,
@@ -256,6 +272,7 @@ pub async fn analyze_with_cli(
         scene_mode,
         is_focus_crop,
         app_name,
+        open_windows,
     );
 
     let prompt = if send_image {
@@ -314,6 +331,7 @@ pub async fn analyze_with_api(
     scene_mode: &str,
     is_focus_crop: bool,
     app_name: Option<&str>,
+    open_windows: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt_with_history(
         language,
@@ -324,6 +342,7 @@ pub async fn analyze_with_api(
         scene_mode,
         is_focus_crop,
         app_name,
+        open_windows,
     );
 
     let content = if send_image {

@@ -3,6 +3,7 @@ use crate::focus_capture;
 use crate::ocr;
 use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
+use crate::window_list;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -169,6 +170,14 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         Some(current_app_name.as_str())
     };
 
+    // Get visible windows for AI context
+    let windows = window_list::get_visible_windows().unwrap_or_default();
+    let windows_text = if windows.is_empty() {
+        None
+    } else {
+        Some(window_list::format_for_prompt(&windows))
+    };
+
     // Fetch recent activities for context injection
     let recent = user_data::get_recent_activities(30).unwrap_or_default();
 
@@ -256,6 +265,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             scene,
             is_focus_crop,
             app_name_ref,
+            windows_text.as_deref(),
         )
         .await
     } else {
@@ -271,6 +281,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             scene,
             is_focus_crop,
             app_name_ref,
+            windows_text.as_deref(),
         )
         .await
     }?;
@@ -299,6 +310,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 scene,
                 false, // not a focus crop anymore
                 app_name_ref,
+                windows_text.as_deref(),
             )
             .await
         } else {
@@ -314,6 +326,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 scene,
                 false,
                 app_name_ref,
+                windows_text.as_deref(),
             )
             .await
         }?;
@@ -386,15 +399,18 @@ pub async fn execute_action(
             open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
         }
         "open_app" => {
-            let app_name = params["app"]
+            let app_id = params["app"]
                 .as_str()
                 .ok_or("Missing app parameter")?;
             // Sanitize: only allow alphanumeric, spaces, dots, hyphens
-            if !app_name.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-') {
-                return Err("Invalid app name".to_string());
+            if !app_id.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-') {
+                return Err("Invalid app identifier".to_string());
             }
+            // Use bundle_id (-b) for reverse-DNS identifiers, app name (-a) for plain names
+            let is_bundle_id = app_id.contains('.') && !app_id.contains(' ');
+            let flag = if is_bundle_id { "-b" } else { "-a" };
             let output = std::process::Command::new("open")
-                .args(["-a", app_name])
+                .args([flag, app_id])
                 .output()
                 .map_err(|e| format!("Failed to open app: {}", e))?;
             if output.status.success() {

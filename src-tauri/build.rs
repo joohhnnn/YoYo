@@ -32,5 +32,25 @@ fn main() {
         .expect("swiftc is required — install Xcode Command Line Tools");
     assert!(status.success(), "Failed to compile Swift focus capture helper");
 
+    // Compile Swift window list helper binary
+    let windows_binary = format!("{}/yoyo-windows", out_dir);
+    println!("cargo:rerun-if-changed=swift/window_list.swift");
+    println!("cargo:rustc-env=YOYO_WINDOWS_BINARY={}", windows_binary);
+
+    let status = std::process::Command::new("swiftc")
+        .args([
+            "swift/window_list.swift",
+            "-o",
+            &windows_binary,
+            "-O",
+            "-framework",
+            "AppKit",
+            "-framework",
+            "CoreGraphics",
+        ])
+        .status()
+        .expect("swiftc is required — install Xcode Command Line Tools");
+    assert!(status.success(), "Failed to compile Swift window list helper");
+
     tauri_build::build()
 }
