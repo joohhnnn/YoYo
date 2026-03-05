@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+/// Singleton database connection to avoid repeated open/init_tables overhead
+/// and prevent "database is locked" errors under high-frequency access.
+static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 /// Returns ~/.yoyo/, creating it if it doesn't exist.
 pub fn yoyo_dir() -> Result<PathBuf, String> {
@@ -83,12 +88,23 @@ fn db_path() -> Result<PathBuf, String> {
 }
 
 /// Open (or create) the database and ensure all tables exist.
-pub fn open_db() -> Result<Connection, String> {
+/// Kept for initial setup in `ensure_initialized()`.
+fn open_db_fresh() -> Result<Connection, String> {
     let path = db_path()?;
     let conn =
         Connection::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
     init_tables(&conn)?;
     Ok(conn)
+}
+
+/// Get a reference to the singleton database connection.
+/// Initializes on first call; subsequent calls reuse the same connection.
+fn get_db() -> Result<std::sync::MutexGuard<'static, Connection>, String> {
+    let mutex = DB_CONN.get_or_init(|| {
+        let conn = open_db_fresh().expect("Failed to initialize database");
+        Mutex::new(conn)
+    });
+    mutex.lock().map_err(|e| format!("Database lock poisoned: {}", e))
 }
 
 fn init_tables(conn: &Connection) -> Result<(), String> {
@@ -143,11 +159,13 @@ fn init_tables(conn: &Connection) -> Result<(), String> {
 }
 
 /// Initialize the ~/.yoyo directory and all default files on app startup.
+/// Also eagerly initializes the singleton DB connection.
 pub fn ensure_initialized() -> Result<(), String> {
-    // Creates dir + default profile + default context + db with tables
+    // Creates dir + default profile + default context
     read_profile()?;
     read_context()?;
-    open_db()?;
+    // Initialize the singleton DB connection (creates tables on first call)
+    drop(get_db()?);
     Ok(())
 }
 
@@ -202,7 +220,7 @@ pub fn record_activity(
     context: &str,
     actions_json: &str,
 ) -> Result<bool, String> {
-    let conn = open_db()?;
+    let conn = get_db()?;
 
     // Fetch last 3 records to compare against (cross-app dedup)
     let mut stmt = conn
@@ -257,7 +275,7 @@ fn insert_activity(
 
 /// Get the most recent N distinct activities (newest first).
 pub fn get_recent_activities(limit: usize) -> Result<Vec<ActivityRecord>, String> {
-    let conn = open_db()?;
+    let conn = get_db()?;
     let mut stmt = conn
         .prepare(
             "SELECT id, app_name, bundle_id, context, created_at, updated_at
@@ -287,7 +305,7 @@ pub fn get_recent_activities(limit: usize) -> Result<Vec<ActivityRecord>, String
 
 /// Get total number of activity records.
 pub fn get_total_activity_count() -> Result<i64, String> {
-    let conn = open_db()?;
+    let conn = get_db()?;
     conn.query_row("SELECT COUNT(*) FROM activity_log", [], |row| row.get(0))
         .map_err(|e| e.to_string())
 }
@@ -299,7 +317,7 @@ pub fn save_reflection(
     period_start: &str,
     period_end: &str,
 ) -> Result<(), String> {
-    let conn = open_db()?;
+    let conn = get_db()?;
     conn.execute(
         "INSERT INTO reflection_log (summary, activity_count, period_start, period_end) VALUES (?1, ?2, ?3, ?4)",
         params![summary, activity_count, period_start, period_end],
@@ -310,7 +328,7 @@ pub fn save_reflection(
 
 /// Get the latest reflection record.
 pub fn get_latest_reflection() -> Result<Option<ReflectionRecord>, String> {
-    let conn = open_db()?;
+    let conn = get_db()?;
     conn.query_row(
         "SELECT id, summary, activity_count, period_start, period_end, created_at
          FROM reflection_log ORDER BY id DESC LIMIT 1",

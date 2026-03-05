@@ -424,6 +424,7 @@ pub fn get_last_analysis(app: AppHandle) -> Option<AnalysisResult> {
 
 #[tauri::command]
 pub async fn execute_action(
+    app: AppHandle,
     action_type: String,
     params: serde_json::Value,
 ) -> Result<(), String> {
@@ -432,6 +433,10 @@ pub async fn execute_action(
             let url = params["url"]
                 .as_str()
                 .ok_or("Missing url parameter")?;
+            // Only allow http/https URLs to prevent file:// or custom scheme attacks
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(format!("Blocked URL with unsupported scheme: {}", url));
+            }
             open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
         }
         "open_app" => {
@@ -477,13 +482,7 @@ pub async fn execute_action(
             let cmd = params["command"]
                 .as_str()
                 .ok_or("Missing command parameter")?;
-            // Block dangerous patterns
-            let blocked = ["rm -rf", "sudo", "mkfs", "dd if=", "> /dev/", "chmod -R 777"];
-            for pattern in &blocked {
-                if cmd.contains(pattern) {
-                    return Err(format!("Blocked dangerous command pattern: {}", pattern));
-                }
-            }
+            validate_command(cmd)?;
             let output = std::process::Command::new("sh")
                 .args(["-c", cmd])
                 .output()
@@ -498,19 +497,12 @@ pub async fn execute_action(
             let message = params["message"]
                 .as_str()
                 .ok_or("Missing message parameter")?;
-            // Use Notification Center via osascript with proper escaping
-            // Replace backslashes and quotes to prevent AppleScript injection
-            let safe_msg: String = message
-                .chars()
-                .filter(|c| *c != '"' && *c != '\\')
-                .collect();
-            let script = format!(
-                r#"display notification "{}" with title "YoYo""#,
-                safe_msg
-            );
-            std::process::Command::new("osascript")
-                .args(["-e", &script])
-                .output()
+            // Use tauri-plugin-notification — no shell injection risk
+            tauri_plugin_notification::NotificationExt::notification(&app)
+                .builder()
+                .title("YoYo")
+                .body(message)
+                .show()
                 .map_err(|e| format!("Failed to send notification: {}", e))?;
             Ok(())
         }
@@ -690,6 +682,73 @@ pub fn finish_onboarding(app: AppHandle) -> Result<(), String> {
     *active = false;
     let mut history = state.onboarding_history.lock().map_err(|e| e.to_string())?;
     history.clear();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Command validation
+// ---------------------------------------------------------------------------
+
+/// Validate a shell command against dangerous patterns.
+/// Uses an expanded blocklist + structural pattern detection.
+fn validate_command(cmd: &str) -> Result<(), String> {
+    let lower = cmd.to_lowercase();
+
+    // Blocked command patterns (case-insensitive)
+    let blocked_patterns = [
+        "rm -rf", "rm -r -f", "rm -fr",
+        "sudo", "su -",
+        "mkfs", "fdisk", "parted",
+        "dd if=", "dd of=",
+        "> /dev/", ">/dev/",
+        "chmod -r 777", "chmod 777",
+        "curl | sh", "curl |sh", "curl|sh",
+        "wget | sh", "wget |sh", "wget|sh",
+        "curl | bash", "curl |bash", "curl|bash",
+        "wget | bash", "wget |bash", "wget|bash",
+        "eval ", "exec ",
+        ":(){ ", ":(){",          // fork bomb
+        "/etc/passwd", "/etc/shadow",
+        "launchctl", "defaults write",
+        "networksetup", "systemsetup",
+        "osascript",              // prevent AppleScript via command
+        "security delete", "security add",
+        "killall", "pkill -9",
+        "shutdown", "reboot", "halt",
+    ];
+
+    for pattern in &blocked_patterns {
+        if lower.contains(pattern) {
+            return Err(format!("Blocked dangerous command pattern: {}", pattern));
+        }
+    }
+
+    // Block shell injection patterns: $(...), `...`, ${...}
+    if cmd.contains("$(") || cmd.contains('`') || cmd.contains("${") {
+        return Err("Blocked: command substitution not allowed".to_string());
+    }
+
+    // Block output redirection to arbitrary files (allow /dev/null)
+    let stripped = cmd.replace("/dev/null", "");
+    if stripped.contains(">>") || stripped.contains("> /") || stripped.contains(">/") {
+        return Err("Blocked: output redirection not allowed".to_string());
+    }
+
+    // Block piping to interpreters
+    let pipe_targets = ["sh", "bash", "zsh", "python", "perl", "ruby", "node"];
+    if let Some(pipe_pos) = cmd.find('|') {
+        let after_pipe = cmd[pipe_pos + 1..].trim();
+        for target in &pipe_targets {
+            if after_pipe.starts_with(target)
+                && after_pipe[target.len()..]
+                    .starts_with(|c: char| c.is_whitespace() || c == '\0')
+                || after_pipe == *target
+            {
+                return Err(format!("Blocked: piping to {} not allowed", target));
+            }
+        }
+    }
+
     Ok(())
 }
 

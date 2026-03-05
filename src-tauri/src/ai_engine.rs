@@ -511,7 +511,7 @@ pub async fn onboarding_chat_api(
     };
     let system_prompt = format!("{}\n\n{}", lang_instruction, ONBOARDING_SYSTEM_PROMPT);
 
-    let messages: Vec<serde_json::Value> = history
+    let mut messages: Vec<serde_json::Value> = history
         .iter()
         .map(|msg| {
             serde_json::json!({
@@ -520,6 +520,14 @@ pub async fn onboarding_chat_api(
             })
         })
         .collect();
+
+    // Claude API requires at least one user message; bootstrap with a greeting
+    if messages.is_empty() {
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": "Hi! Let's get started."
+        }));
+    }
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
