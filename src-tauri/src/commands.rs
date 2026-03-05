@@ -159,6 +159,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         }
     }
 
+    let _ = app.emit("analysis-progress", "Capturing...");
     let data = load_data(app);
 
     // Get current app name from state
@@ -232,6 +233,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         (screenshot::capture_screen()?, false)
     };
 
+    let _ = app.emit("analysis-progress", "Extracting text...");
     // Text extraction: try Accessibility API first, then fall back to OCR
     let current_pid = app
         .try_state::<AppState>()
@@ -287,6 +289,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     // - fallback: if OCR failed (no text), always send image
     let send_image = effective_depth == "deep" || ocr_text.is_none();
 
+    let _ = app.emit("analysis-progress", "Analyzing...");
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
             &image_path,

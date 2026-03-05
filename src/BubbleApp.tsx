@@ -21,6 +21,7 @@ export default function BubbleApp() {
   const [opacity, setOpacity] = useState(0.85);
   const [visible, setVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState(false);
   const { executing, execute } = useActions();
 
@@ -73,6 +74,12 @@ export default function BubbleApp() {
     // Show refreshing indicator on app switch; content updates when analysis completes
     const unlistenSwitch = listen("app-switched", () => {
       setRefreshing(true);
+      setAnalysisStage(null);
+    });
+
+    // Listen for analysis progress stages
+    const unlistenProgress = listen<string>("analysis-progress", (event) => {
+      setAnalysisStage(event.payload);
     });
 
     // Listen for new analysis results — keeps bubble content in sync on app switch
@@ -82,6 +89,7 @@ export default function BubbleApp() {
         setResult(event.payload);
         setVisible(true);
         setRefreshing(false);
+        setAnalysisStage(null);
         // Show suggested quest if AI detected a goal
         if (event.payload.suggested_quest) {
           setSuggestedQuest(event.payload.suggested_quest);
@@ -108,6 +116,7 @@ export default function BubbleApp() {
 
     return () => {
       unlistenSwitch.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
       unlistenAnalysis.then((fn) => fn());
       unlistenOpacity.then((fn) => fn());
       unlistenOnboarding.then((fn) => fn());
@@ -214,7 +223,7 @@ export default function BubbleApp() {
               <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
             )}
             <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-              YoYo
+              {refreshing && analysisStage ? analysisStage : "YoYo"}
             </span>
           </div>
         </div>
@@ -280,6 +289,23 @@ export default function BubbleApp() {
                 <path d="M3 3l6 6M9 3l-6 6" strokeLinecap="round" />
               </svg>
             </button>
+          </div>
+        )}
+
+        {/* Key Concepts (Learning mode) */}
+        {result.key_concepts && result.key_concepts.length > 0 && (
+          <div className="mx-4 mb-2">
+            <div className="flex flex-wrap gap-1">
+              {result.key_concepts.map((concept, i) => (
+                <span
+                  key={i}
+                  className="px-1.5 py-0.5 text-[10px] bg-violet-500/10 text-violet-300
+                    border border-violet-500/20 rounded"
+                >
+                  {concept}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
