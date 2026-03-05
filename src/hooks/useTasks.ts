@@ -62,5 +62,10 @@ export function useTasks() {
     [tasks, persist]
   );
 
-  return { tasks, addTask, toggleTask, removeTask, updateProgress };
+  const removeCompleted = useCallback(() => {
+    const updated = tasks.filter((t) => !t.done);
+    persist(updated);
+  }, [tasks, persist]);
+
+  return { tasks, addTask, toggleTask, removeTask, removeCompleted, updateProgress };
 }

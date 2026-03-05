@@ -12,7 +12,7 @@ import type { AnalysisResult } from "./types";
 
 export default function TrayApp() {
   const { loading, error, analyze } = useScreenContext();
-  const { tasks, addTask, toggleTask, removeTask, updateProgress } =
+  const { tasks, addTask, toggleTask, removeTask, removeCompleted, updateProgress } =
     useTasks();
   const [showSettings, setShowSettings] = useState(false);
   const [suggestedQuest, setSuggestedQuest] = useState<string | null>(null);
@@ -154,6 +154,7 @@ export default function TrayApp() {
           onToggle={toggleTask}
           onAdd={addTask}
           onRemove={removeTask}
+          onRemoveCompleted={removeCompleted}
           onUpdateProgress={updateProgress}
         />
       </div>

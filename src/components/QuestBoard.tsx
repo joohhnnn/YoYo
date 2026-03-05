@@ -6,6 +6,7 @@ interface QuestBoardProps {
   onToggle: (id: string) => void;
   onAdd: (text: string, questType: "main" | "side", target?: number) => void;
   onRemove: (id: string) => void;
+  onRemoveCompleted: () => void;
   onUpdateProgress: (id: string, progress: number) => void;
 }
 
@@ -14,6 +15,7 @@ export function QuestBoard({
   onToggle,
   onAdd,
   onRemove,
+  onRemoveCompleted,
   onUpdateProgress,
 }: QuestBoardProps) {
   const mainQuests = tasks.filter((t) => t.quest_type === "main" && !t.done);
@@ -37,6 +39,7 @@ export function QuestBoard({
         quests={sideQuests}
         onToggle={onToggle}
         onRemove={onRemove}
+        onRemoveCompleted={onRemoveCompleted}
         onAdd={onAdd}
       />
     </div>
@@ -201,11 +204,13 @@ function SideQuestList({
   quests,
   onToggle,
   onRemove,
+  onRemoveCompleted,
   onAdd,
 }: {
   quests: TaskItem[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  onRemoveCompleted: () => void;
   onAdd: (text: string, questType: "main" | "side", target?: number) => void;
 }) {
   const [input, setInput] = useState("");
@@ -221,8 +226,16 @@ function SideQuestList({
 
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">
-        Side Quests
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center justify-between">
+        <span>Side Quests</span>
+        {quests.some((t) => t.done) && (
+          <button
+            onClick={onRemoveCompleted}
+            className="text-[9px] text-zinc-600 hover:text-red-400 transition-colors normal-case tracking-normal"
+          >
+            Clear done
+          </button>
+        )}
       </div>
       <div className="space-y-1 max-h-48 overflow-y-auto">
         {quests.map((task) => (
