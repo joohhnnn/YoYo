@@ -764,6 +764,11 @@ pub fn get_recent_activities(limit: Option<usize>) -> Result<Vec<ActivityRecord>
     user_data::get_recent_activities(limit.unwrap_or(30))
 }
 
+#[tauri::command]
+pub fn get_latest_reflection() -> Result<Option<user_data::ReflectionRecord>, String> {
+    user_data::get_latest_reflection()
+}
+
 // ---------------------------------------------------------------------------
 // Reflection (long-term memory)
 // ---------------------------------------------------------------------------

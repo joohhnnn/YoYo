@@ -240,6 +240,7 @@ pub fn run() {
             commands::send_onboarding_message,
             commands::finish_onboarding,
             commands::get_recent_activities,
+            commands::get_latest_reflection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");

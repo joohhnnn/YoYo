@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getSettings, saveSettings } from "../services/storage";
 import { getProfile, saveProfile, getContext, saveContext } from "../services/userdata";
 import type { Settings } from "../types";
+
+interface ReflectionRecord {
+  id: number;
+  summary: string;
+  activity_count: number;
+  period_start: string;
+  period_end: string;
+  created_at: string;
+}
 
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5", desc: "Fast" },
@@ -54,6 +64,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [profileText, setProfileText] = useState("");
   const [contextText, setContextText] = useState("");
   const [editorDirty, setEditorDirty] = useState(false);
+  const [reflection, setReflection] = useState<ReflectionRecord | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -66,6 +77,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       getProfile().then((t) => { setProfileText(t); setEditorDirty(false); });
     } else if (tab === "context") {
       getContext().then((t) => { setContextText(t); setEditorDirty(false); });
+      invoke<ReflectionRecord | null>("get_latest_reflection").then(setReflection).catch(() => {});
     }
   }, [tab]);
 
@@ -366,11 +378,26 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <textarea
             value={tab === "profile" ? profileText : contextText}
             onChange={(e) => handleEditorChange(e.target.value, tab)}
-            className="flex-1 mx-3 mb-3 p-2 text-[11px] leading-relaxed bg-zinc-800 border border-zinc-700
+            className="flex-1 mx-3 mb-2 p-2 text-[11px] leading-relaxed bg-zinc-800 border border-zinc-700
               rounded text-zinc-200 placeholder-zinc-600 outline-none resize-none
               focus:border-blue-500/50 font-mono"
             placeholder={tab === "profile" ? "# About Me\n..." : "# Current Context\n..."}
           />
+
+          {/* Latest AI Reflection (only in context tab) */}
+          {tab === "context" && reflection && (
+            <div className="mx-3 mb-3 px-2 py-1.5 bg-violet-500/[0.06] border border-violet-500/15 rounded text-[10px]">
+              <div className="text-violet-400 font-medium mb-1">
+                AI Reflection ({reflection.created_at})
+              </div>
+              <p className="text-zinc-400 leading-relaxed whitespace-pre-wrap">
+                {reflection.summary}
+              </p>
+              <div className="text-zinc-600 mt-1">
+                Based on {reflection.activity_count} activities
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
