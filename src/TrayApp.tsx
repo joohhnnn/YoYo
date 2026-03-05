@@ -16,6 +16,9 @@ export default function TrayApp() {
     useTasks();
   const [showSettings, setShowSettings] = useState(false);
   const [suggestedQuest, setSuggestedQuest] = useState<string | null>(null);
+  const [showTips, setShowTips] = useState(
+    () => !localStorage.getItem("yoyo-tips-dismissed")
+  );
 
   useEffect(() => {
     const registerShortcuts = async () => {
@@ -116,6 +119,30 @@ export default function TrayApp() {
         </div>
 
         <div className="border-t border-zinc-800" />
+
+        {/* First-use tips */}
+        {showTips && tasks.length === 0 && (
+          <div className="mx-3 mt-2 px-3 py-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-400 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-300 font-medium">Quick Start</span>
+              <button
+                onClick={() => {
+                  setShowTips(false);
+                  localStorage.setItem("yoyo-tips-dismissed", "1");
+                }}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors text-[10px]"
+              >
+                Dismiss
+              </button>
+            </div>
+            <ul className="space-y-1 leading-relaxed">
+              <li><kbd className="px-1 py-0.5 bg-zinc-700 rounded text-[9px] text-zinc-300">Cmd+Shift+R</kbd> Analyze current screen</li>
+              <li><kbd className="px-1 py-0.5 bg-zinc-700 rounded text-[9px] text-zinc-300">Cmd+Shift+Y</kbd> Toggle this panel</li>
+              <li>Click <span className="text-blue-400">Analyze</span> to get AI suggestions</li>
+              <li>AI suggests quests based on what you're doing</li>
+            </ul>
+          </div>
+        )}
 
         {/* Suggested Quest */}
         {suggestedQuest && (
