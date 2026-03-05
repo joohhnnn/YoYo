@@ -134,6 +134,55 @@ fn load_data(app: &AppHandle) -> AppData {
     }
 }
 
+/// Adaptive depth based on current app type (used in "general" scene mode).
+/// IDEs / terminals → normal (read cursor area code)
+/// Browsers / readers → deep (capture article content)
+/// Chat / media / system apps → casual (just track app usage)
+fn depth_for_app(bundle_id: &str) -> &'static str {
+    let bid = bundle_id.to_lowercase();
+
+    // Deep: reading-heavy apps (browsers, document viewers, ebooks)
+    if bid.contains("safari")
+        || bid.contains("chrome")
+        || bid.contains("firefox")
+        || bid.contains("edge")
+        || bid.contains("arc")
+        || bid.contains("orion")
+        || bid.contains("preview")
+        || bid.contains("books")
+        || bid.contains("kindle")
+        || bid.contains("pdf")
+        || bid.contains("reader")
+        || bid.contains("notion")
+        || bid.contains("obsidian")
+        || bid.contains("pages")
+        || bid.contains("word")
+    {
+        return "deep";
+    }
+
+    // Casual: chat, media, system utilities
+    if bid.contains("slack")
+        || bid.contains("discord")
+        || bid.contains("telegram")
+        || bid.contains("wechat")
+        || bid.contains("messages")
+        || bid.contains("whatsapp")
+        || bid.contains("spotify")
+        || bid.contains("music")
+        || bid.contains("photos")
+        || bid.contains("finder")
+        || bid.contains("systempreferences")
+        || bid.contains("systemsettings")
+        || bid.contains("activity")
+    {
+        return "casual";
+    }
+
+    // Normal (default): IDEs, terminals, editors, everything else
+    "normal"
+}
+
 fn save_data(app: &AppHandle, data: &AppData) -> Result<(), String> {
     let path = data_path(app);
     let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
@@ -207,14 +256,20 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     let scene = &data.settings.scene_mode;
 
+    // Get current app bundle_id for adaptive depth
+    let current_bundle = app
+        .try_state::<AppState>()
+        .and_then(|s| s.current_bundle_id.lock().ok().map(|b| b.clone()))
+        .unwrap_or_default();
+
     // Scene auto-determines effective depth:
     // - learning → deep (need to read all content)
     // - working → casual (just track workflow)
-    // - general → user's manual depth setting
+    // - general → adaptive by app type, fallback "normal"
     let effective_depth = match scene.as_str() {
         "learning" => "deep",
         "working" => "casual",
-        _ => &data.settings.analysis_depth,
+        _ => depth_for_app(&current_bundle),
     };
 
     // Non-deep modes: use cursor-area focus capture instead of full screen
