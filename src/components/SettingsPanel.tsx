@@ -19,33 +19,27 @@ const MODEL_OPTIONS = [
   { value: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Balanced" },
 ];
 
-const SCENE_OPTIONS: { value: Settings["scene_mode"]; label: string; desc: string }[] = [
-  { value: "general", label: "通用", desc: "手动控制分析深度" },
-  { value: "learning", label: "学习", desc: "深度提取知识点 + key_concepts" },
-  { value: "working", label: "工作", desc: "轻量记录工作流状态" },
-];
-
-const DEPTH_OPTIONS: { value: Settings["analysis_depth"]; label: string; desc: string }[] = [
-  { value: "casual", label: "清闲", desc: "只识别 app 和大致活动" },
-  { value: "normal", label: "普通", desc: "读取光标附近焦点区域" },
-  { value: "deep", label: "硬核", desc: "全屏截图 + 读取所有文字" },
+const SCENE_OPTIONS: { value: Settings["scene_mode"]; label: string; desc: string; depth: string }[] = [
+  { value: "general", label: "通用", desc: "读取光标附近焦点区域", depth: "normal" },
+  { value: "learning", label: "学习", desc: "全屏深度提取知识点 + key_concepts", depth: "deep" },
+  { value: "working", label: "工作", desc: "轻量识别 app + 工作流状态", depth: "casual" },
 ];
 
 const PRESET_OPTIONS = [
   {
     label: "Developer",
     icon: "{ }",
-    config: { scene_mode: "working" as const, analysis_depth: "normal" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 5 },
+    config: { scene_mode: "working" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 5 },
   },
   {
     label: "Student",
     icon: "📖",
-    config: { scene_mode: "learning" as const, analysis_depth: "deep" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 10 },
+    config: { scene_mode: "learning" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 10 },
   },
   {
     label: "Writer",
     icon: "✍",
-    config: { scene_mode: "general" as const, analysis_depth: "casual" as const, model: "claude-haiku-4-5-20251001", auto_analyze: false, analysis_cooldown_secs: 15 },
+    config: { scene_mode: "general" as const, model: "claude-haiku-4-5-20251001", auto_analyze: false, analysis_cooldown_secs: 15 },
   },
 ];
 
@@ -186,7 +180,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
             <p className="text-[9px] text-zinc-600 mt-1">
               {SCENE_OPTIONS.find((o) => o.value === settings.scene_mode)
-                ?.desc ?? "手动控制分析深度"}
+                ?.desc ?? "读取光标附近焦点区域"}
             </p>
           </SettingRow>
 
@@ -249,31 +243,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 settings.model}
             </p>
           </SettingRow>
-
-          {/* Analysis Depth — only shown in general mode */}
-          {settings.scene_mode === "general" && (
-            <SettingRow label="Analysis Depth">
-              <div className="flex gap-1">
-                {DEPTH_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => update({ analysis_depth: opt.value })}
-                    className={`flex-1 text-[10px] py-1 rounded transition-colors ${
-                      settings.analysis_depth === opt.value
-                        ? "bg-blue-600 text-white"
-                        : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[9px] text-zinc-600 mt-1">
-                {DEPTH_OPTIONS.find((o) => o.value === settings.analysis_depth)
-                  ?.desc ?? "关注焦点区域"}
-              </p>
-            </SettingRow>
-          )}
 
           {/* Language */}
           <SettingRow label="Language">
