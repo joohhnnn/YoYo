@@ -37,6 +37,8 @@ pub struct Settings {
     pub analysis_depth: String, // "casual" | "normal" | "deep"
     #[serde(default = "default_scene_mode")]
     pub scene_mode: String, // "general" | "learning" | "working"
+    #[serde(default)]
+    pub obsidian_vault_path: String,
 }
 
 fn default_model() -> String {
@@ -77,6 +79,7 @@ impl Default for Settings {
             auto_analyze: true,
             analysis_depth: "normal".to_string(),
             scene_mode: "general".to_string(),
+            obsidian_vault_path: String::new(),
         }
     }
 }
