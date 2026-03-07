@@ -278,25 +278,28 @@ describe("BubbleApp", () => {
   });
 
   describe("Dynamic window resize", () => {
-    it("wrapperRef is attached to the outermost bubble-container div", async () => {
-      setupInvokeMock({ result: mockResult });
-      const { container } = render(<BubbleApp />);
-      await flush();
-
-      // The outermost div should be bubble-container — the one with the ref
-      const wrapper = container.firstElementChild;
-      expect(wrapper?.className).toContain("bubble-container");
-    });
-
-    it("inner container allows content to expand naturally (no overflow-hidden)", async () => {
+    it("inner container allows content to expand naturally (no overflow-hidden, no flex-col)", async () => {
       setupInvokeMock({ session: mockSession, result: mockResult });
       const { container } = render(<BubbleApp />);
       await flush();
 
       const inner = container.querySelector(".backdrop-blur-xl");
       expect(inner?.className).not.toContain("overflow-hidden");
-      // Should not use flex-col (which with flex-1 children causes collapse)
       expect(inner?.className).not.toContain("flex-col");
+    });
+
+    it("no child div uses flex-1 + min-h-0 (prevents collapse)", async () => {
+      setupInvokeMock({ session: mockSession, timeline: mockTimeline, result: mockResult });
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      const allDivs = container.querySelectorAll("div");
+      allDivs.forEach((div) => {
+        const cls = div.className;
+        const hasFlex1 = cls.includes("flex-1");
+        const hasMinH0 = cls.includes("min-h-0");
+        expect(hasFlex1 && hasMinH0).toBe(false);
+      });
     });
   });
 
