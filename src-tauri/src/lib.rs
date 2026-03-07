@@ -86,6 +86,16 @@ pub fn run() {
                 }
             }
 
+            // Restore active session from DB on startup
+            {
+                let state = app.state::<AppState>();
+                if let Ok(Some(session)) = user_data::get_active_session_from_db() {
+                    if let Ok(mut active) = state.active_session.lock() {
+                        *active = Some(session);
+                    }
+                }
+            }
+
             // Listen for speech-bubble events to show the speech bubble window
             let app_for_bubble_event = app.handle().clone();
             app.listen("speech-bubble", move |_event| {
