@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { ActionButtons } from "./components/ActionButtons";
 import { ChatView } from "./components/ChatView";
 import { useActions } from "./hooks/useActions";
@@ -53,6 +55,25 @@ export default function BubbleApp() {
   // Timer
   const [elapsed, setElapsed] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+
+  // Dynamic window resize
+  const contentRef = useRef<HTMLDivElement>(null);
+  const resizeWindow = useCallback(() => {
+    if (!contentRef.current) return;
+    const h = contentRef.current.scrollHeight;
+    const clamped = Math.min(Math.max(h, 80), 520);
+    getCurrentWebviewWindow()
+      .setSize(new LogicalSize(340, clamped))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const observer = new ResizeObserver(resizeWindow);
+    observer.observe(contentRef.current);
+    resizeWindow();
+    return () => observer.disconnect();
+  }, [resizeWindow]);
 
   useEffect(() => {
     // Load opacity setting
@@ -268,9 +289,10 @@ export default function BubbleApp() {
       style={{ opacity }}
     >
       <div
+        ref={contentRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none overflow-hidden flex flex-col max-h-[460px]"
+        text-white select-none overflow-hidden flex flex-col max-h-[520px]"
       >
         {/* Header — pinned top */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
