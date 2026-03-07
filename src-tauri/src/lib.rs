@@ -35,6 +35,8 @@ pub struct AppState {
     // Onboarding state
     pub onboarding_active: Mutex<bool>,
     pub onboarding_history: Mutex<Vec<ChatMessage>>,
+    // Session mode
+    pub active_session: Mutex<Option<user_data::Session>>,
 }
 
 pub fn run() {
@@ -53,6 +55,7 @@ pub fn run() {
             activities_since_reflection: AtomicI64::new(0),
             onboarding_active: Mutex::new(false),
             onboarding_history: Mutex::new(Vec::new()),
+            active_session: Mutex::new(None),
         })
         .setup(|app| {
             // Start window monitor
@@ -244,6 +247,12 @@ pub fn run() {
             commands::get_latest_reflection,
             commands::detect_obsidian_vaults,
             commands::validate_vault_path,
+            commands::start_session,
+            commands::end_session,
+            commands::get_active_session,
+            commands::get_session_history,
+            commands::get_session_timeline,
+            commands::send_session_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");

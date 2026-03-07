@@ -912,3 +912,162 @@ pub fn detect_obsidian_vaults() -> Vec<String> {
 pub fn validate_vault_path(path: String) -> bool {
     crate::obsidian::is_valid_vault(&path)
 }
+
+// ---------------------------------------------------------------------------
+// Session management
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn start_session(app: AppHandle, goal: String) -> Result<user_data::Session, String> {
+    // End any existing active session first
+    let state = app.state::<AppState>();
+    if let Ok(mut active) = state.active_session.lock() {
+        if let Some(ref session) = *active {
+            let _ = user_data::end_session(&session.id, "Auto-ended by new session", "abandoned");
+        }
+        *active = None;
+    }
+
+    let session = user_data::create_session(&goal)?;
+    if let Ok(mut active) = state.active_session.lock() {
+        *active = Some(session.clone());
+    }
+    let _ = app.emit("session-started", &session);
+    Ok(session)
+}
+
+#[tauri::command]
+pub async fn end_session(app: AppHandle) -> Result<user_data::SessionSummary, String> {
+    let state = app.state::<AppState>();
+    let session = {
+        let mut active = state.active_session.lock().map_err(|e| e.to_string())?;
+        active.take().ok_or("No active session")?
+    };
+
+    let timeline = user_data::get_session_timeline(&session.id)?;
+
+    // Generate summary via AI
+    let data = load_data(&app);
+    let summary_text = generate_session_summary(&session, &timeline, &data).await?;
+
+    user_data::end_session(&session.id, &summary_text, "completed")?;
+
+    // Sync to Obsidian if enabled
+    if data.settings.obsidian_enabled && !data.settings.obsidian_vault_path.is_empty() {
+        if let Err(e) = crate::obsidian::sync_reflection(
+            &data.settings.obsidian_vault_path,
+            &summary_text,
+            timeline.len() as i64,
+            &session.started_at,
+            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        ) {
+            eprintln!("Obsidian session sync failed (non-fatal): {}", e);
+        }
+    }
+
+    let ended_session = user_data::get_session(&session.id)?
+        .unwrap_or(session);
+
+    let summary = user_data::SessionSummary {
+        session: ended_session,
+        timeline,
+    };
+    let _ = app.emit("session-ended", &summary);
+    Ok(summary)
+}
+
+#[tauri::command]
+pub fn get_active_session(app: AppHandle) -> Result<Option<user_data::Session>, String> {
+    let state = app.state::<AppState>();
+    let active = state.active_session.lock().map_err(|e| e.to_string())?;
+    Ok(active.clone())
+}
+
+#[tauri::command]
+pub fn get_session_history(limit: u32) -> Result<Vec<user_data::Session>, String> {
+    user_data::get_session_history(limit)
+}
+
+#[tauri::command]
+pub fn get_session_timeline(session_id: String) -> Result<Vec<user_data::TimelineEntry>, String> {
+    user_data::get_session_timeline(&session_id)
+}
+
+#[tauri::command]
+pub async fn send_session_message(app: AppHandle, message: String) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let session = {
+        let active = state.active_session.lock().map_err(|e| e.to_string())?;
+        active.clone().ok_or("No active session")?
+    };
+
+    let data = load_data(&app);
+    let timeline = user_data::get_session_timeline(&session.id)?;
+
+    let response = generate_session_chat(&session, &timeline, &message, &data).await?;
+
+    // Show response as speech bubble
+    let _ = app.emit("speech-bubble", serde_json::json!({
+        "text": response,
+        "auto_dismiss_secs": 12
+    }));
+
+    Ok(response)
+}
+
+// --- AI helpers for session summary and chat ---
+
+async fn generate_session_summary(
+    session: &user_data::Session,
+    timeline: &[user_data::TimelineEntry],
+    data: &AppData,
+) -> Result<String, String> {
+    let timeline_text: String = timeline
+        .iter()
+        .map(|e| format!("- {} {} ({})", e.timestamp, e.context, e.app_name))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!(
+        "Summarize this work session in 2-3 sentences. Include: what was accomplished, any blockers, and suggested next steps.\n\nGoal: {}\nDuration: {} → now\nTimeline:\n{}\n\nRespond in {}. Plain text only, no JSON.",
+        session.goal,
+        session.started_at,
+        timeline_text,
+        if data.settings.language == "zh" { "Chinese" } else { "English" }
+    );
+
+    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await
+    } else {
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await
+    }
+}
+
+async fn generate_session_chat(
+    session: &user_data::Session,
+    timeline: &[user_data::TimelineEntry],
+    user_message: &str,
+    data: &AppData,
+) -> Result<String, String> {
+    let timeline_text: String = timeline
+        .iter()
+        .rev()
+        .take(10)
+        .map(|e| format!("- {} {} ({})", e.timestamp, e.context, e.app_name))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!(
+        "You are YoYo, a workflow assistant. The user is in a session with goal: \"{}\"\nRecent timeline:\n{}\n\nUser says: {}\n\nRespond in 1-3 sentences, concise and actionable. Respond in {}.",
+        session.goal,
+        timeline_text,
+        user_message,
+        if data.settings.language == "zh" { "Chinese" } else { "English" }
+    );
+
+    if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await
+    } else {
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await
+    }
+}

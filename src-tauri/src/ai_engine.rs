@@ -723,3 +723,52 @@ fn format_relative_time(timestamp: &str, now: &chrono::NaiveDateTime) -> String 
         Err(_) => "unknown".to_string(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Simple text-only chat (no image) for session summary / chat
+// ---------------------------------------------------------------------------
+
+/// Simple text-only chat via CLI (no image).
+pub async fn simple_chat_cli(prompt: &str, model: &str) -> Result<String, String> {
+    let output = tokio::process::Command::new("claude")
+        .args(["-p", prompt, "--model", model, "--no-input"])
+        .output()
+        .await
+        .map_err(|e| format!("Claude CLI failed: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Claude CLI error: {}", stderr));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Simple text-only chat via API (no image).
+pub async fn simple_chat_api(prompt: &str, api_key: &str, model: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}]
+    });
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    json["content"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No text in API response".to_string())
+}
