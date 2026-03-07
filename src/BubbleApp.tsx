@@ -279,10 +279,10 @@ export default function BubbleApp() {
       <div
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none overflow-hidden"
+        text-white select-none overflow-hidden flex flex-col max-h-[460px]"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        {/* Header — pinned top */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
           <div className="flex items-center gap-2">
             {refreshing ? (
               <span className="w-2 h-2 border border-zinc-400 border-t-transparent rounded-full animate-spin" />
@@ -311,166 +311,172 @@ export default function BubbleApp() {
           )}
         </div>
 
-        {/* Session goal banner */}
-        {session && (
-          <div className="mx-4 mb-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
-            <div className="text-[11px] text-zinc-300 truncate">
-              {session.goal}
-            </div>
-          </div>
-        )}
-
-        {/* Context (from analysis) */}
-        {result && (
-          <div className="px-4 pb-2">
-            <p className="text-[13px] text-zinc-300 leading-snug">
-              {result.context}
-            </p>
-          </div>
-        )}
-
-        {/* Session timeline (compact, last 3) */}
-        {session && timeline.length > 0 && (
-          <div className="mx-4 mb-2 space-y-0.5">
-            {timeline.slice(-3).map((e) => (
-              <div
-                key={e.id}
-                className="text-[10px] text-zinc-500 truncate pl-1"
-              >
-                <span className="text-zinc-600 font-mono">
-                  {e.timestamp.length > 5
-                    ? e.timestamp.slice(11, 16)
-                    : e.timestamp}
-                </span>{" "}
-                {e.context}
+        {/* Scrollable content area */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* Session goal banner */}
+          {session && (
+            <div className="mx-4 mb-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
+              <div className="text-[11px] text-zinc-300 truncate">
+                {session.goal}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Key Concepts (Learning mode) */}
-        {result?.key_concepts && result.key_concepts.length > 0 && (
-          <div className="mx-4 mb-2">
-            <div className="flex flex-wrap gap-1">
-              {result.key_concepts.map((concept, i) => (
-                <span
-                  key={i}
-                  className="px-1.5 py-0.5 text-[10px] bg-violet-500/10 text-violet-300
-                    border border-violet-500/20 rounded"
+          {/* Context (from analysis) */}
+          {result && (
+            <div className="px-4 pb-2">
+              <p className="text-[13px] text-zinc-300 leading-snug">
+                {result.context}
+              </p>
+            </div>
+          )}
+
+          {/* Session timeline (compact, last 3) */}
+          {session && timeline.length > 0 && (
+            <div className="mx-4 mb-2 space-y-0.5">
+              {timeline.slice(-3).map((e) => (
+                <div
+                  key={e.id}
+                  className="text-[10px] text-zinc-500 truncate pl-1"
                 >
-                  {concept}
-                </span>
+                  <span className="text-zinc-600 font-mono">
+                    {e.timestamp.length > 5
+                      ? e.timestamp.slice(11, 16)
+                      : e.timestamp}
+                  </span>{" "}
+                  {e.context}
+                </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Separator */}
-        {(result || session) && (
-          <div className="mx-4 border-t border-white/[0.06]" />
-        )}
+          {/* Key Concepts (Learning mode) */}
+          {result?.key_concepts && result.key_concepts.length > 0 && (
+            <div className="mx-4 mb-2">
+              <div className="flex flex-wrap gap-1">
+                {result.key_concepts.map((concept, i) => (
+                  <span
+                    key={i}
+                    className="px-1.5 py-0.5 text-[10px] bg-violet-500/10 text-violet-300
+                      border border-violet-500/20 rounded"
+                  >
+                    {concept}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {/* Actions or status overlay */}
-        {executing || actionDone ? (
-          <div className="px-4 py-6 flex flex-col items-center gap-2">
-            {actionDone ? (
-              <>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  className="w-6 h-6 text-emerald-400"
-                >
-                  <path
-                    d="M5 13l4 4L19 7"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span className="text-[12px] text-zinc-400">Done</span>
-              </>
-            ) : (
-              <>
-                <span className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                <span className="text-[12px] text-zinc-400">
-                  Processing...
-                </span>
-              </>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Action buttons */}
-            {result && (
-              <ActionButtons
-                actions={result.actions}
-                executing={executing}
-                onExecute={handleExecute}
-                compact
+          {/* Separator */}
+          {(result || session) && (
+            <div className="mx-4 border-t border-white/[0.06]" />
+          )}
+
+          {/* Actions or status overlay */}
+          {executing || actionDone ? (
+            <div className="px-4 py-6 flex flex-col items-center gap-2">
+              {actionDone ? (
+                <>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="w-6 h-6 text-emerald-400"
+                  >
+                    <path
+                      d="M5 13l4 4L19 7"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="text-[12px] text-zinc-400">Done</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-[12px] text-zinc-400">
+                    Processing...
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Action buttons */}
+              {result && (
+                <ActionButtons
+                  actions={result.actions}
+                  executing={executing}
+                  onExecute={handleExecute}
+                  compact
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Bottom area — pinned bottom */}
+        <div className="flex-shrink-0">
+          {/* Session chat input (during active session) */}
+          {session && (
+            <div className="mx-4 mb-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleSessionChat();
+                  }
+                }}
+                placeholder="Ask YoYo..."
+                disabled={sessionChatLoading}
+                className="w-full bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
               />
-            )}
+            </div>
+          )}
 
-            {/* Session chat input (during active session) */}
-            {session && (
-              <div className="mx-4 mb-2">
+          {/* Session start input (when idle — no active session) */}
+          {!session && (
+            <div className="mx-4 my-2">
+              <div className="flex gap-1.5">
                 <input
                   type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  value={goalInput}
+                  onChange={(e) => setGoalInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                       e.preventDefault();
-                      handleSessionChat();
+                      handleStartSession();
                     }
                   }}
-                  placeholder="Ask YoYo..."
-                  disabled={sessionChatLoading}
-                  className="w-full bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
+                  placeholder="Start a session..."
+                  disabled={startingSession}
+                  className="flex-1 bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
                 />
+                <button
+                  onClick={handleStartSession}
+                  disabled={!goalInput.trim() || startingSession}
+                  className="text-[10px] px-2 py-1.5 rounded bg-blue-600/80 hover:bg-blue-500 disabled:opacity-30 transition-colors"
+                >
+                  Go
+                </button>
               </div>
-            )}
-
-            {/* Session start input (when idle — no active session) */}
-            {!session && (
-              <div className="mx-4 my-2">
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    value={goalInput}
-                    onChange={(e) => setGoalInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        handleStartSession();
-                      }
-                    }}
-                    placeholder="Start a session..."
-                    disabled={startingSession}
-                    className="flex-1 bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
-                  />
-                  <button
-                    onClick={handleStartSession}
-                    disabled={!goalInput.trim() || startingSession}
-                    className="text-[10px] px-2 py-1.5 rounded bg-blue-600/80 hover:bg-blue-500 disabled:opacity-30 transition-colors"
-                  >
-                    Go
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="px-4 py-2 flex items-center border-t border-white/[0.06]">
-              <span className="text-[10px] text-zinc-600">
-                <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
-                  Cmd+Shift+R
-                </kbd>{" "}
-                refresh
-              </span>
             </div>
-          </>
-        )}
+          )}
+
+          {/* Footer */}
+          <div className="px-4 py-2 flex items-center border-t border-white/[0.06]">
+            <span className="text-[10px] text-zinc-600">
+              <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
+                Cmd+Shift+R
+              </kbd>{" "}
+              refresh
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
