@@ -864,5 +864,29 @@ pub async fn trigger_reflection(app: &AppHandle) -> Result<(), String> {
     user_data::save_reflection(&summary, total, &period_start, &period_end)?;
     user_data::update_context_with_reflection(&summary, &period_end)?;
 
+    // Sync to Obsidian vault if configured
+    let vault_path = &data.settings.obsidian_vault_path;
+    if !vault_path.is_empty() {
+        if let Err(e) = crate::obsidian::sync_reflection(
+            vault_path,
+            &summary,
+            total,
+            &period_start,
+            &period_end,
+        ) {
+            eprintln!("Obsidian sync failed (non-fatal): {}", e);
+        }
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+pub fn detect_obsidian_vaults() -> Vec<String> {
+    crate::obsidian::detect_vaults()
+}
+
+#[tauri::command]
+pub fn validate_vault_path(path: String) -> bool {
+    crate::obsidian::is_valid_vault(&path)
 }

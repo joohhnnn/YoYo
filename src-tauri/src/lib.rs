@@ -3,6 +3,7 @@ mod ai_engine;
 mod commands;
 mod focus_capture;
 mod frame_diff;
+mod obsidian;
 mod ocr;
 mod screenshot;
 mod user_data;
@@ -241,6 +242,8 @@ pub fn run() {
             commands::finish_onboarding,
             commands::get_recent_activities,
             commands::get_latest_reflection,
+            commands::detect_obsidian_vaults,
+            commands::validate_vault_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");
