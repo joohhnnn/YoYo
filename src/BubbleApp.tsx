@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { ActionButtons } from "./components/ActionButtons";
@@ -10,6 +10,8 @@ import {
   sendOnboardingMessage,
 } from "./services/onboarding";
 import {
+  startSession,
+  endSession,
   getActiveSession,
   getSessionTimeline,
   sendSessionMessage,
@@ -42,8 +44,15 @@ export default function BubbleApp() {
   // Session state
   const [session, setSession] = useState<Session | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [goalInput, setGoalInput] = useState("");
+  const [startingSession, setStartingSession] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [sessionChatLoading, setSessionChatLoading] = useState(false);
+
+  // Timer
+  const [elapsed, setElapsed] = useState("");
+  const timerRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
     // Load opacity setting
@@ -54,7 +63,10 @@ export default function BubbleApp() {
     // Load active session
     getActiveSession().then((s) => {
       setSession(s);
-      if (s) getSessionTimeline(s.id).then(setTimeline);
+      if (s) {
+        getSessionTimeline(s.id).then(setTimeline);
+        setVisible(true);
+      }
     });
 
     // Check if onboarding is needed
@@ -115,6 +127,7 @@ export default function BubbleApp() {
       (event) => {
         setSession(event.payload);
         setTimeline([]);
+        setVisible(true);
       }
     );
 
@@ -156,6 +169,25 @@ export default function BubbleApp() {
     };
   }, []);
 
+  // Session timer
+  useEffect(() => {
+    if (!session) {
+      clearInterval(timerRef.current);
+      setElapsed("");
+      return;
+    }
+    const tick = () => {
+      const start = new Date(session.started_at.replace(" ", "T")).getTime();
+      const diff = Date.now() - start;
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      setElapsed(h > 0 ? `${h}h${m}m` : `${m}m`);
+    };
+    tick();
+    timerRef.current = setInterval(tick, 10000);
+    return () => clearInterval(timerRef.current);
+  }, [session]);
+
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
     setActionDone(true);
@@ -175,6 +207,26 @@ export default function BubbleApp() {
       ]);
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const handleStartSession = async () => {
+    if (!goalInput.trim() || startingSession) return;
+    setStartingSession(true);
+    try {
+      await startSession(goalInput.trim());
+      setGoalInput("");
+    } finally {
+      setStartingSession(false);
+    }
+  };
+
+  const handleEndSession = async () => {
+    setEndingSession(true);
+    try {
+      await endSession();
+    } finally {
+      setEndingSession(false);
     }
   };
 
@@ -218,8 +270,7 @@ export default function BubbleApp() {
     );
   }
 
-  if (!result) return null;
-
+  // --- MAIN BUBBLE VIEW ---
   return (
     <div
       className={`bubble-container ${visible ? "bubble-enter" : "bubble-exit"}`}
@@ -235,33 +286,48 @@ export default function BubbleApp() {
           <div className="flex items-center gap-2">
             {refreshing ? (
               <span className="w-2 h-2 border border-zinc-400 border-t-transparent rounded-full animate-spin" />
+            ) : session ? (
+              <div className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.5)]" />
             ) : (
               <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
             )}
             <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-              {refreshing && analysisStage ? analysisStage : "YoYo"}
+              {refreshing && analysisStage
+                ? analysisStage
+                : session
+                  ? `Session · ${elapsed}`
+                  : "YoYo"}
             </span>
           </div>
+          {/* End session button */}
+          {session && (
+            <button
+              onClick={handleEndSession}
+              disabled={endingSession}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/80 hover:bg-red-500 disabled:opacity-50 transition-colors"
+            >
+              {endingSession ? "..." : "End"}
+            </button>
+          )}
         </div>
 
         {/* Session goal banner */}
         {session && (
           <div className="mx-4 mb-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
-            <div className="text-[10px] text-blue-400 uppercase tracking-wider mb-0.5">
-              Session
-            </div>
             <div className="text-[11px] text-zinc-300 truncate">
               {session.goal}
             </div>
           </div>
         )}
 
-        {/* Context */}
-        <div className="px-4 pb-2">
-          <p className="text-[13px] text-zinc-300 leading-snug">
-            {result.context}
-          </p>
-        </div>
+        {/* Context (from analysis) */}
+        {result && (
+          <div className="px-4 pb-2">
+            <p className="text-[13px] text-zinc-300 leading-snug">
+              {result.context}
+            </p>
+          </div>
+        )}
 
         {/* Session timeline (compact, last 3) */}
         {session && timeline.length > 0 && (
@@ -283,7 +349,7 @@ export default function BubbleApp() {
         )}
 
         {/* Key Concepts (Learning mode) */}
-        {result.key_concepts && result.key_concepts.length > 0 && (
+        {result?.key_concepts && result.key_concepts.length > 0 && (
           <div className="mx-4 mb-2">
             <div className="flex flex-wrap gap-1">
               {result.key_concepts.map((concept, i) => (
@@ -300,7 +366,9 @@ export default function BubbleApp() {
         )}
 
         {/* Separator */}
-        <div className="mx-4 border-t border-white/[0.06]" />
+        {(result || session) && (
+          <div className="mx-4 border-t border-white/[0.06]" />
+        )}
 
         {/* Actions or status overlay */}
         {executing || actionDone ? (
@@ -333,31 +401,61 @@ export default function BubbleApp() {
           </div>
         ) : (
           <>
-            <ActionButtons
-              actions={result.actions}
-              executing={executing}
-              onExecute={handleExecute}
-              compact
-            />
+            {/* Action buttons */}
+            {result && (
+              <ActionButtons
+                actions={result.actions}
+                executing={executing}
+                onExecute={handleExecute}
+                compact
+              />
+            )}
 
-            {/* Session chat input */}
+            {/* Session chat input (during active session) */}
             {session && (
               <div className="mx-4 mb-2">
-                <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSessionChat();
+                    }
+                  }}
+                  placeholder="Ask YoYo..."
+                  disabled={sessionChatLoading}
+                  className="w-full bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
+                />
+              </div>
+            )}
+
+            {/* Session start input (when idle — no active session) */}
+            {!session && (
+              <div className="mx-4 my-2">
+                <div className="flex gap-1.5">
                   <input
                     type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
+                    value={goalInput}
+                    onChange={(e) => setGoalInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        handleSessionChat();
+                        handleStartSession();
                       }
                     }}
-                    placeholder="Ask YoYo..."
-                    disabled={sessionChatLoading}
-                    className="flex-1 bg-white/[0.06] text-white text-[11px] rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
+                    placeholder="Start a session..."
+                    disabled={startingSession}
+                    className="flex-1 bg-white/[0.06] text-white text-[11px] rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-zinc-600 disabled:opacity-50 border border-white/[0.06]"
                   />
+                  <button
+                    onClick={handleStartSession}
+                    disabled={!goalInput.trim() || startingSession}
+                    className="text-[10px] px-2 py-1.5 rounded bg-blue-600/80 hover:bg-blue-500 disabled:opacity-30 transition-colors"
+                  >
+                    Go
+                  </button>
                 </div>
               </div>
             )}
