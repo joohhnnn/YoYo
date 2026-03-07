@@ -291,10 +291,10 @@ export default function BubbleApp() {
         ref={bubbleRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none"
+        text-white select-none overflow-hidden flex flex-col max-h-[520px]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
           <div className="flex items-center gap-2">
             {refreshing ? (
               <span className="w-2 h-2 border border-zinc-400 border-t-transparent rounded-full animate-spin" />
@@ -323,8 +323,8 @@ export default function BubbleApp() {
           )}
         </div>
 
-        {/* Content area — normal flow, no flex collapse */}
-        <div>
+        {/* Content area — flex scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Session goal banner */}
           {session && (
             <div className="mx-4 mb-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
@@ -427,7 +427,7 @@ export default function BubbleApp() {
         </div>
 
         {/* Bottom area */}
-        <div>
+        <div className="flex-shrink-0">
           {/* Session chat input (during active session) */}
           {session && (
             <div className="mx-4 mb-2">

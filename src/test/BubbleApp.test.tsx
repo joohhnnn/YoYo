@@ -245,61 +245,40 @@ describe("BubbleApp", () => {
     });
   });
 
-  describe("Layout: no flex collapse", () => {
-    it("content area does NOT use flex-1 or min-h-0 (prevents height collapse)", async () => {
+  describe("Layout: flex container with scroll", () => {
+    it("inner container uses flex-col with overflow-hidden for proper layout", async () => {
       setupInvokeMock({ session: mockSession, timeline: mockTimeline, result: mockResult });
       const { container } = render(<BubbleApp />);
       await flush();
 
-      // The inner glass container should NOT have flex-col that would cause collapse
       const innerDiv = container.querySelector(".backdrop-blur-xl");
       expect(innerDiv).toBeTruthy();
-
-      // Must NOT have flex-1 or min-h-0 on any direct child that wraps content
-      const allDivs = innerDiv!.querySelectorAll(":scope > div");
-      allDivs.forEach((div) => {
-        const cls = div.className;
-        // No child should have both flex-1 and min-h-0
-        const hasFlex1 = cls.includes("flex-1");
-        const hasMinH0 = cls.includes("min-h-0");
-        expect(hasFlex1 && hasMinH0).toBe(false);
-      });
+      expect(innerDiv?.className).toContain("flex");
+      expect(innerDiv?.className).toContain("flex-col");
+      expect(innerDiv?.className).toContain("overflow-hidden");
     });
 
-    it("all sections are visible in DOM (not clipped by overflow-hidden)", async () => {
+    it("content area uses flex-1 + min-h-0 for scrollable overflow", async () => {
       setupInvokeMock({ session: mockSession, timeline: mockTimeline, result: mockResult });
       const { container } = render(<BubbleApp />);
       await flush();
 
-      // Inner container must NOT have overflow-hidden
       const innerDiv = container.querySelector(".backdrop-blur-xl");
-      expect(innerDiv?.className).not.toContain("overflow-hidden");
-    });
-  });
-
-  describe("Dynamic window resize", () => {
-    it("inner container allows content to expand naturally (no overflow-hidden, no flex-col)", async () => {
-      setupInvokeMock({ session: mockSession, result: mockResult });
-      const { container } = render(<BubbleApp />);
-      await flush();
-
-      const inner = container.querySelector(".backdrop-blur-xl");
-      expect(inner?.className).not.toContain("overflow-hidden");
-      expect(inner?.className).not.toContain("flex-col");
+      const contentDiv = innerDiv!.querySelectorAll(":scope > div")[1]; // second child = content area
+      expect(contentDiv.className).toContain("flex-1");
+      expect(contentDiv.className).toContain("min-h-0");
+      expect(contentDiv.className).toContain("overflow-y-auto");
     });
 
-    it("no child div uses flex-1 + min-h-0 (prevents collapse)", async () => {
+    it("all sections are visible in DOM", async () => {
       setupInvokeMock({ session: mockSession, timeline: mockTimeline, result: mockResult });
       const { container } = render(<BubbleApp />);
       await flush();
 
-      const allDivs = container.querySelectorAll("div");
-      allDivs.forEach((div) => {
-        const cls = div.className;
-        const hasFlex1 = cls.includes("flex-1");
-        const hasMinH0 = cls.includes("min-h-0");
-        expect(hasFlex1 && hasMinH0).toBe(false);
-      });
+      // Header, content, and footer should all be present
+      const innerDiv = container.querySelector(".backdrop-blur-xl");
+      const children = innerDiv!.querySelectorAll(":scope > div");
+      expect(children.length).toBe(3); // header, content, bottom
     });
   });
 
