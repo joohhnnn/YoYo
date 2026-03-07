@@ -138,20 +138,11 @@ export default function BubbleApp() {
 
     const unlistenTimeline = listen<any>(
       "session-timeline-update",
-      (event) => {
-        setTimeline((prev) => [
-          ...prev,
-          {
-            id: Date.now(),
-            session_id: event.payload.session_id,
-            timestamp: new Date().toLocaleTimeString("zh-CN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            context: event.payload.context,
-            app_name: event.payload.app_name,
-          },
-        ]);
+      () => {
+        // Re-fetch from DB to stay in sync (avoids stale/duplicate entries)
+        getActiveSession().then((s) => {
+          if (s) getSessionTimeline(s.id).then(setTimeline);
+        });
       }
     );
 
@@ -340,9 +331,7 @@ export default function BubbleApp() {
                   className="text-[10px] text-zinc-500 truncate pl-1"
                 >
                   <span className="text-zinc-600 font-mono">
-                    {e.timestamp.length > 5
-                      ? e.timestamp.slice(11, 16)
-                      : e.timestamp}
+                    {e.timestamp.slice(11, 16)}
                   </span>{" "}
                   {e.context}
                 </div>
