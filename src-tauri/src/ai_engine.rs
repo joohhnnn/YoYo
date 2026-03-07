@@ -36,6 +36,11 @@ pub struct AnalysisResult {
     pub key_concepts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub need_full_context: Option<bool>,
+    // Session-aware fields
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_track: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drift_message: Option<String>,
 }
 
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:
@@ -63,7 +68,9 @@ Respond ONLY with valid JSON, no other text:
 }
 
 The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected.
-The "need_full_context" field is OPTIONAL. Set to true ONLY if the visible content is clearly truncated at the edges and you need the full screen to analyze properly. Default is false — omit it in most cases."#;
+The "need_full_context" field is OPTIONAL. Set to true ONLY if the visible content is clearly truncated at the edges and you need the full screen to analyze properly. Default is false — omit it in most cases.
+The "on_track" field is OPTIONAL. Only include when an [Active Session] section is present. Set to true if the user's current activity relates to the session goal, false if they appear to be drifting.
+The "drift_message" field is OPTIONAL. Only include when on_track is false. Write a brief, friendly nudge (1 sentence) reminding the user of their goal."#;
 
 /// Returns the analysis depth instruction to prepend to the prompt.
 fn depth_instruction(depth: &str) -> &'static str {
@@ -141,6 +148,7 @@ pub fn build_full_prompt_with_history(
     app_name: Option<&str>,
     open_windows: Option<&str>,
     obsidian_context: Option<&str>,
+    session_context: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -253,6 +261,13 @@ pub fn build_full_prompt_with_history(
         }
     }
 
+    // Inject active session context
+    if let Some(session_ctx) = session_context {
+        if !session_ctx.is_empty() {
+            parts.push(session_ctx.to_string());
+        }
+    }
+
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
@@ -274,6 +289,7 @@ pub async fn analyze_with_cli(
     app_name: Option<&str>,
     open_windows: Option<&str>,
     obsidian_context: Option<&str>,
+    session_context: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt_with_history(
         language,
@@ -286,6 +302,7 @@ pub async fn analyze_with_cli(
         app_name,
         open_windows,
         obsidian_context,
+        session_context,
     );
 
     let prompt = if send_image {
@@ -346,6 +363,7 @@ pub async fn analyze_with_api(
     app_name: Option<&str>,
     open_windows: Option<&str>,
     obsidian_context: Option<&str>,
+    session_context: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt_with_history(
         language,
@@ -358,6 +376,7 @@ pub async fn analyze_with_api(
         app_name,
         open_windows,
         obsidian_context,
+        session_context,
     );
 
     let content = if send_image {

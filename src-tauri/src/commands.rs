@@ -365,6 +365,36 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         None
     };
 
+    // Build session context for prompt injection
+    let session_context = app
+        .try_state::<AppState>()
+        .and_then(|state| {
+            state.active_session.lock().ok().and_then(|active| {
+                active.as_ref().map(|session| {
+                    let timeline = user_data::get_session_timeline(&session.id).unwrap_or_default();
+                    let elapsed = chrono::NaiveDateTime::parse_from_str(
+                        &session.started_at, "%Y-%m-%d %H:%M:%S",
+                    )
+                    .map(|start| {
+                        let dur = chrono::Local::now().naive_local() - start;
+                        let h = dur.num_hours();
+                        let m = dur.num_minutes() % 60;
+                        if h > 0 { format!("{}h{}m", h, m) } else { format!("{}m", m) }
+                    })
+                    .unwrap_or_else(|_| "?".to_string());
+
+                    let recent_timeline: String = timeline.iter().rev().take(10).map(|e| {
+                        format!("- {} {} ({})", e.timestamp, e.context, e.app_name)
+                    }).collect::<Vec<_>>().join("\n");
+
+                    format!(
+                        "[Active Session]\nGoal: {}\nDuration: {}\nRecent timeline:\n{}\n\nAnalyze the user's current screen in the context of this goal.\n- Is the user on-track or drifting from the goal?\n- What specific suggestion would help them progress?",
+                        session.goal, elapsed, recent_timeline
+                    )
+                })
+            })
+        });
+
     let _ = app.emit("analysis-progress", "Analyzing...");
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
@@ -382,6 +412,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             app_name_ref,
             windows_text.as_deref(),
             obsidian_context.as_deref(),
+            session_context.as_deref(),
         )
         .await
     } else {
@@ -399,6 +430,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             app_name_ref,
             windows_text.as_deref(),
             obsidian_context.as_deref(),
+            session_context.as_deref(),
         )
         .await
     }?;
@@ -429,6 +461,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 app_name_ref,
                 windows_text.as_deref(),
                 obsidian_context.as_deref(),
+                session_context.as_deref(),
             )
             .await
         } else {
@@ -446,6 +479,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 app_name_ref,
                 windows_text.as_deref(),
                 obsidian_context.as_deref(),
+                session_context.as_deref(),
             )
             .await
         }?;

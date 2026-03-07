@@ -164,6 +164,47 @@ pub fn run() {
                             let _ = app.emit("analysis-complete", &result);
                             show_bubble(&app);
 
+                            // Record timeline entry if session is active
+                            let session_id = state
+                                .active_session
+                                .lock()
+                                .ok()
+                                .and_then(|a| a.as_ref().map(|s| s.id.clone()));
+                            if let Some(ref sid) = session_id {
+                                let ctx = &result.context;
+                                let sapp = state
+                                    .current_app_name
+                                    .lock()
+                                    .map(|n| n.clone())
+                                    .unwrap_or_default();
+                                let _ = user_data::add_timeline_entry(sid, ctx, &sapp);
+                                let _ = app.emit(
+                                    "session-timeline-update",
+                                    serde_json::json!({
+                                        "session_id": sid,
+                                        "context": ctx,
+                                        "app_name": sapp,
+                                    }),
+                                );
+
+                                // Drift detection
+                                if result.on_track == Some(false) {
+                                    if let Some(ref msg) = result.drift_message {
+                                        let _ = app.emit(
+                                            "session-drift",
+                                            serde_json::json!({ "message": msg }),
+                                        );
+                                        let _ = app.emit(
+                                            "speech-bubble",
+                                            serde_json::json!({
+                                                "text": msg,
+                                                "auto_dismiss_secs": 10
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+
                             // Record activity to observation log
                             let app_name = state
                                 .current_app_name
