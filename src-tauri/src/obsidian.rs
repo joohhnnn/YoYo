@@ -130,8 +130,8 @@ fn append_to_daily_note(vault_path: &str, summary: &str) -> Result<(), String> {
         return Err("Today's daily note doesn't exist yet".to_string());
     }
 
-    let mut content = fs::read_to_string(&daily_path)
-        .map_err(|e| format!("Failed to read daily note: {}", e))?;
+    let mut content =
+        fs::read_to_string(&daily_path).map_err(|e| format!("Failed to read daily note: {}", e))?;
 
     if content.contains("## YoYo") {
         return Ok(());
@@ -151,8 +151,7 @@ fn append_to_daily_note(vault_path: &str, summary: &str) -> Result<(), String> {
     };
 
     content.push_str(&format!("\n\n## YoYo\n{}\n", brief));
-    fs::write(&daily_path, content)
-        .map_err(|e| format!("Failed to write daily note: {}", e))?;
+    fs::write(&daily_path, content).map_err(|e| format!("Failed to write daily note: {}", e))?;
 
     Ok(())
 }

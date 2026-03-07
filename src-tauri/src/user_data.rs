@@ -91,8 +91,7 @@ fn db_path() -> Result<PathBuf, String> {
 /// Kept for initial setup in `ensure_initialized()`.
 fn open_db_fresh() -> Result<Connection, String> {
     let path = db_path()?;
-    let conn =
-        Connection::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
+    let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
     init_tables(&conn)?;
     Ok(conn)
 }
@@ -104,7 +103,9 @@ fn get_db() -> Result<std::sync::MutexGuard<'static, Connection>, String> {
         let conn = open_db_fresh().expect("Failed to initialize database");
         Mutex::new(conn)
     });
-    mutex.lock().map_err(|e| format!("Database lock poisoned: {}", e))
+    mutex
+        .lock()
+        .map_err(|e| format!("Database lock poisoned: {}", e))
 }
 
 fn init_tables(conn: &Connection) -> Result<(), String> {

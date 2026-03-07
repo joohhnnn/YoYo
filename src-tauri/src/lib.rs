@@ -357,20 +357,19 @@ pub fn show_bubble(app: &tauri::AppHandle) {
         position_bubble_top_right(&window);
         let _ = window.show();
     } else {
-        let window =
-            WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
-                .title("YoYo Bubble")
-                .inner_size(340.0, 380.0)
-                .resizable(false)
-                .decorations(false)
-                .transparent(true)
-                .always_on_top(true)
-                .visible_on_all_workspaces(true)
-                .visible(false)
-                .skip_taskbar(true)
-                .focused(false)
-                .build()
-                .expect("Failed to create bubble window");
+        let window = WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
+            .title("YoYo Bubble")
+            .inner_size(340.0, 380.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .visible(false)
+            .skip_taskbar(true)
+            .focused(false)
+            .build()
+            .expect("Failed to create bubble window");
 
         position_bubble_top_right(&window);
         let _ = window.show();
@@ -393,21 +392,17 @@ fn show_speech_bubble(app: &tauri::AppHandle) {
         position_speech_bubble(&window, app);
         let _ = window.show();
     } else {
-        match WebviewWindowBuilder::new(
-            app,
-            "speech-bubble",
-            WebviewUrl::App("index.html".into()),
-        )
-        .title("YoYo Speech")
-        .inner_size(280.0, 120.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .visible(false)
-        .skip_taskbar(true)
-        .focused(false)
-        .build()
+        match WebviewWindowBuilder::new(app, "speech-bubble", WebviewUrl::App("index.html".into()))
+            .title("YoYo Speech")
+            .inner_size(280.0, 120.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .visible(false)
+            .skip_taskbar(true)
+            .focused(false)
+            .build()
         {
             Ok(window) => {
                 position_speech_bubble(&window, app);

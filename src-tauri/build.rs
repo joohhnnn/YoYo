@@ -30,7 +30,10 @@ fn main() {
         ])
         .status()
         .expect("swiftc is required — install Xcode Command Line Tools");
-    assert!(status.success(), "Failed to compile Swift focus capture helper");
+    assert!(
+        status.success(),
+        "Failed to compile Swift focus capture helper"
+    );
 
     // Compile Swift window list helper binary
     let windows_binary = format!("{}/yoyo-windows", out_dir);
@@ -50,7 +53,10 @@ fn main() {
         ])
         .status()
         .expect("swiftc is required — install Xcode Command Line Tools");
-    assert!(status.success(), "Failed to compile Swift window list helper");
+    assert!(
+        status.success(),
+        "Failed to compile Swift window list helper"
+    );
 
     // Compile Swift accessibility helper binary
     let ax_binary = format!("{}/yoyo-ax", out_dir);
@@ -72,7 +78,10 @@ fn main() {
         ])
         .status()
         .expect("swiftc is required — install Xcode Command Line Tools");
-    assert!(status.success(), "Failed to compile Swift accessibility helper");
+    assert!(
+        status.success(),
+        "Failed to compile Swift accessibility helper"
+    );
 
     tauri_build::build()
 }

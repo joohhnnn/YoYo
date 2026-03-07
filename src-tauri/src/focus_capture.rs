@@ -40,8 +40,12 @@ pub fn capture_focus_area() -> Result<FocusCaptureResult, String> {
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
-    let parsed: FocusCaptureOutput = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse focus capture output: {}. Raw: {}", e, json_str))?;
+    let parsed: FocusCaptureOutput = serde_json::from_str(&json_str).map_err(|e| {
+        format!(
+            "Failed to parse focus capture output: {}. Raw: {}",
+            e, json_str
+        )
+    })?;
 
     if let Some(ref err) = parsed.error {
         return Err(format!("Focus capture error: {}", err));

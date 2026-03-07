@@ -75,12 +75,15 @@ The "drift_message" field is OPTIONAL. Only include when on_track is false. Writ
 /// Returns the analysis depth instruction to prepend to the prompt.
 fn depth_instruction(depth: &str) -> &'static str {
     match depth {
-        "casual" => r#"[Analysis Depth: Casual]
+        "casual" => {
+            r#"[Analysis Depth: Casual]
 Focus ONLY on identifying the active application and the user's general activity category (e.g., "coding", "browsing", "chatting", "reading docs").
 Do NOT read or transcribe specific text, code, variable names, or UI details from the screen.
 Keep the "context" field to one short, general sentence.
-Suggest broad, high-level actions only (e.g., "Open Terminal", "Switch to Safari")."#,
-        "deep" => r#"[Analysis Depth: Deep]
+Suggest broad, high-level actions only (e.g., "Open Terminal", "Switch to Safari")."#
+        }
+        "deep" => {
+            r#"[Analysis Depth: Deep]
 Read and record ALL visible text on screen in detail. This includes:
 - Article/document content, headings, and key paragraphs
 - Code with function names, comments, and logic
@@ -89,17 +92,21 @@ Read and record ALL visible text on screen in detail. This includes:
 - Exercise questions, options, and answers
 - Any learning material content
 
-In the "context" field, provide a detailed summary that captures the specific content being viewed. If the user is learning or studying, extract key information (vocabulary, concepts, questions, formulas) into the context. Be thorough — the user wants everything recorded."#,
+In the "context" field, provide a detailed summary that captures the specific content being viewed. If the user is learning or studying, extract key information (vocabulary, concepts, questions, formulas) into the context. Be thorough — the user wants everything recorded."#
+        }
         // "normal" or fallback
-        _ => r#"[Analysis Depth: Normal]
-Focus on the user's active working area — the text cursor, input fields, active editor tabs, chat messages being composed or received. Read key details like file names, search queries, and AI conversation snippets, but do not transcribe entire documents or code blocks."#,
+        _ => {
+            r#"[Analysis Depth: Normal]
+Focus on the user's active working area — the text cursor, input fields, active editor tabs, chat messages being composed or received. Read key details like file names, search queries, and AI conversation snippets, but do not transcribe entire documents or code blocks."#
+        }
     }
 }
 
 /// Returns scene-specific instructions that shape AI behavior.
 fn scene_instruction(scene: &str) -> &'static str {
     match scene {
-        "learning" => r#"[Scene: Learning Mode]
+        "learning" => {
+            r#"[Scene: Learning Mode]
 The user is in a learning/studying session. Your primary job is to help track and record their learning.
 
 Focus on:
@@ -111,8 +118,10 @@ Focus on:
 IMPORTANT: In your JSON output, include a "key_concepts" field — an array of 3-8 key terms, concepts, or vocabulary words visible on screen. Example:
 "key_concepts": ["ownership", "borrow checker", "lifetime annotations"]
 
-Do NOT suggest generic productivity actions like "Open Terminal". Keep all suggestions learning-focused."#,
-        "working" => r#"[Scene: Working Mode]
+Do NOT suggest generic productivity actions like "Open Terminal". Keep all suggestions learning-focused."#
+        }
+        "working" => {
+            r#"[Scene: Working Mode]
 The user is in a work/productivity session. Your primary job is to help them stay in flow and track progress.
 
 Focus on:
@@ -122,7 +131,8 @@ Focus on:
 - Suggest workflow-oriented next actions (run tests, commit code, open relevant tool, check docs)
 
 Keep the "context" field brief — describe workflow state, not content details.
-Do NOT read or transcribe specific code lines, document text, or chat messages in detail. Just identify what they're doing and where they are in their workflow."#,
+Do NOT read or transcribe specific code lines, document text, or chat messages in detail. Just identify what they're doing and where they are in their workflow."#
+        }
         _ => "", // general mode: no scene-specific instruction
     }
 }
@@ -155,9 +165,7 @@ pub fn build_full_prompt_with_history(
     // Language instruction
     match language {
         "en" => parts.push("Respond in English.".to_string()),
-        _ => parts.push(
-            "请用中文回复。context 字段和 label 字段都必须使用中文。".to_string(),
-        ),
+        _ => parts.push("请用中文回复。context 字段和 label 字段都必须使用中文。".to_string()),
     }
 
     if let Ok(profile) = user_data::read_profile() {
@@ -306,9 +314,7 @@ pub async fn analyze_with_cli(
     );
 
     let prompt = if send_image {
-        let path_str = screenshot_path
-            .to_str()
-            .ok_or("Invalid screenshot path")?;
+        let path_str = screenshot_path.to_str().ok_or("Invalid screenshot path")?;
         format!(
             "Read the screenshot image at '{}' and analyze it.\n\n{}",
             path_str, full_prompt
@@ -457,8 +463,12 @@ fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
         response
     };
 
-    serde_json::from_str::<AnalysisResult>(json_str)
-        .map_err(|e| format!("Failed to parse AI response as JSON: {}. Raw: {}", e, response))
+    serde_json::from_str::<AnalysisResult>(json_str).map_err(|e| {
+        format!(
+            "Failed to parse AI response as JSON: {}. Raw: {}",
+            e, response
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +527,16 @@ pub async fn onboarding_chat_cli(
     prompt.push_str("Assistant: ");
 
     let output = tokio::process::Command::new("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1", "--model", model])
+        .args([
+            "-p",
+            &prompt,
+            "--output-format",
+            "text",
+            "--max-turns",
+            "1",
+            "--model",
+            model,
+        ])
         .output()
         .await
         .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
@@ -619,7 +638,16 @@ pub async fn generate_reflection_cli(
     );
 
     let output = tokio::process::Command::new("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--max-turns", "1", "--model", model])
+        .args([
+            "-p",
+            &prompt,
+            "--output-format",
+            "text",
+            "--max-turns",
+            "1",
+            "--model",
+            model,
+        ])
         .output()
         .await
         .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
@@ -695,7 +723,10 @@ fn format_activities_for_reflection(activities: &[ActivityRecord]) -> String {
         .rev() // chronological order (oldest first)
         .map(|a| {
             let duration = format_activity_duration(&a.created_at, &a.updated_at);
-            format!("- {} [{}] {}{}", a.created_at, a.app_name, a.context, duration)
+            format!(
+                "- {} [{}] {}{}",
+                a.created_at, a.app_name, a.context, duration
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")

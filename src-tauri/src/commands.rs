@@ -7,10 +7,10 @@ use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
 use crate::window_list;
 use crate::AppState;
-use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -286,7 +286,10 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         match focus_capture::capture_focus_area() {
             Ok(capture) => (capture.image_path, true),
             Err(e) => {
-                eprintln!("Focus capture failed, falling back to full screenshot: {}", e);
+                eprintln!(
+                    "Focus capture failed, falling back to full screenshot: {}",
+                    e
+                );
                 (screenshot::capture_screen()?, false)
             }
         }
@@ -352,18 +355,19 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     let send_image = effective_depth == "deep" || ocr_text.is_none();
 
     // Search Obsidian vault for relevant notes
-    let obsidian_context = if data.settings.obsidian_enabled && !data.settings.obsidian_vault_path.is_empty() {
-        let mut keywords: Vec<&str> = Vec::new();
-        if let Some(name) = app_name_ref {
-            keywords.push(name);
-        }
-        for quest in &main_quests {
-            keywords.extend(quest.split_whitespace().take(3));
-        }
-        obsidian::search_vault(&data.settings.obsidian_vault_path, &keywords)
-    } else {
-        None
-    };
+    let obsidian_context =
+        if data.settings.obsidian_enabled && !data.settings.obsidian_vault_path.is_empty() {
+            let mut keywords: Vec<&str> = Vec::new();
+            if let Some(name) = app_name_ref {
+                keywords.push(name);
+            }
+            for quest in &main_quests {
+                keywords.extend(quest.split_whitespace().take(3));
+            }
+            obsidian::search_vault(&data.settings.obsidian_vault_path, &keywords)
+        } else {
+            None
+        };
 
     // Build session context for prompt injection
     let session_context = app
@@ -547,9 +551,7 @@ pub async fn execute_action(
 ) -> Result<(), String> {
     match action_type.as_str() {
         "open_url" => {
-            let url = params["url"]
-                .as_str()
-                .ok_or("Missing url parameter")?;
+            let url = params["url"].as_str().ok_or("Missing url parameter")?;
             // Only allow http/https URLs to prevent file:// or custom scheme attacks
             if !url.starts_with("http://") && !url.starts_with("https://") {
                 return Err(format!("Blocked URL with unsupported scheme: {}", url));
@@ -557,11 +559,12 @@ pub async fn execute_action(
             open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
         }
         "open_app" => {
-            let app_id = params["app"]
-                .as_str()
-                .ok_or("Missing app parameter")?;
+            let app_id = params["app"].as_str().ok_or("Missing app parameter")?;
             // Sanitize: only allow alphanumeric, spaces, dots, hyphens
-            if !app_id.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-') {
+            if !app_id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-')
+            {
                 return Err("Invalid app identifier".to_string());
             }
             // Use bundle_id (-b) for reverse-DNS identifiers, app name (-a) for plain names
@@ -578,9 +581,7 @@ pub async fn execute_action(
             }
         }
         "copy_to_clipboard" => {
-            let text = params["text"]
-                .as_str()
-                .ok_or("Missing text parameter")?;
+            let text = params["text"].as_str().ok_or("Missing text parameter")?;
             let mut child = std::process::Command::new("pbcopy")
                 .stdin(std::process::Stdio::piped())
                 .spawn()
@@ -697,7 +698,13 @@ pub async fn start_onboarding(app: AppHandle) -> Result<ChatMessage, String> {
     // Call AI with empty history to get first question
     let data = load_data(&app);
     let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::onboarding_chat_api(&[], &data.settings.api_key, &data.settings.model, &data.settings.language).await?
+        ai_engine::onboarding_chat_api(
+            &[],
+            &data.settings.api_key,
+            &data.settings.model,
+            &data.settings.language,
+        )
+        .await?
     } else {
         ai_engine::onboarding_chat_cli(&[], &data.settings.model, &data.settings.language).await?
     };
@@ -749,7 +756,12 @@ pub async fn send_onboarding_message(
         )
         .await?
     } else {
-        ai_engine::onboarding_chat_cli(&history_snapshot, &data.settings.model, &data.settings.language).await?
+        ai_engine::onboarding_chat_cli(
+            &history_snapshot,
+            &data.settings.model,
+            &data.settings.language,
+        )
+        .await?
     };
 
     // Check for profile completion marker
@@ -813,25 +825,50 @@ fn validate_command(cmd: &str) -> Result<(), String> {
 
     // Blocked command patterns (case-insensitive)
     let blocked_patterns = [
-        "rm -rf", "rm -r -f", "rm -fr",
-        "sudo", "su -",
-        "mkfs", "fdisk", "parted",
-        "dd if=", "dd of=",
-        "> /dev/", ">/dev/",
-        "chmod -r 777", "chmod 777",
-        "curl | sh", "curl |sh", "curl|sh",
-        "wget | sh", "wget |sh", "wget|sh",
-        "curl | bash", "curl |bash", "curl|bash",
-        "wget | bash", "wget |bash", "wget|bash",
-        "eval ", "exec ",
-        ":(){ ", ":(){",          // fork bomb
-        "/etc/passwd", "/etc/shadow",
-        "launchctl", "defaults write",
-        "networksetup", "systemsetup",
-        "osascript",              // prevent AppleScript via command
-        "security delete", "security add",
-        "killall", "pkill -9",
-        "shutdown", "reboot", "halt",
+        "rm -rf",
+        "rm -r -f",
+        "rm -fr",
+        "sudo",
+        "su -",
+        "mkfs",
+        "fdisk",
+        "parted",
+        "dd if=",
+        "dd of=",
+        "> /dev/",
+        ">/dev/",
+        "chmod -r 777",
+        "chmod 777",
+        "curl | sh",
+        "curl |sh",
+        "curl|sh",
+        "wget | sh",
+        "wget |sh",
+        "wget|sh",
+        "curl | bash",
+        "curl |bash",
+        "curl|bash",
+        "wget | bash",
+        "wget |bash",
+        "wget|bash",
+        "eval ",
+        "exec ",
+        ":(){ ",
+        ":(){", // fork bomb
+        "/etc/passwd",
+        "/etc/shadow",
+        "launchctl",
+        "defaults write",
+        "networksetup",
+        "systemsetup",
+        "osascript", // prevent AppleScript via command
+        "security delete",
+        "security add",
+        "killall",
+        "pkill -9",
+        "shutdown",
+        "reboot",
+        "halt",
     ];
 
     for pattern in &blocked_patterns {
@@ -857,8 +894,7 @@ fn validate_command(cmd: &str) -> Result<(), String> {
         let after_pipe = cmd[pipe_pos + 1..].trim();
         for target in &pipe_targets {
             if after_pipe.starts_with(target)
-                && after_pipe[target.len()..]
-                    .starts_with(|c: char| c.is_whitespace() || c == '\0')
+                && after_pipe[target.len()..].starts_with(|c: char| c.is_whitespace() || c == '\0')
                 || after_pipe == *target
             {
                 return Err(format!("Blocked: piping to {} not allowed", target));
@@ -904,7 +940,12 @@ pub async fn trigger_reflection(app: &AppHandle) -> Result<(), String> {
         )
         .await?
     } else {
-        ai_engine::generate_reflection_cli(&activities, &data.settings.model, &data.settings.language).await?
+        ai_engine::generate_reflection_cli(
+            &activities,
+            &data.settings.model,
+            &data.settings.language,
+        )
+        .await?
     };
 
     let total = user_data::get_total_activity_count()?;
@@ -999,8 +1040,7 @@ pub async fn end_session(app: AppHandle) -> Result<user_data::SessionSummary, St
         }
     }
 
-    let ended_session = user_data::get_session(&session.id)?
-        .unwrap_or(session);
+    let ended_session = user_data::get_session(&session.id)?.unwrap_or(session);
 
     let summary = user_data::SessionSummary {
         session: ended_session,
@@ -1041,10 +1081,13 @@ pub async fn send_session_message(app: AppHandle, message: String) -> Result<Str
     let response = generate_session_chat(&session, &timeline, &message, &data).await?;
 
     // Show response as speech bubble
-    let _ = app.emit("speech-bubble", serde_json::json!({
-        "text": response,
-        "auto_dismiss_secs": 12
-    }));
+    let _ = app.emit(
+        "speech-bubble",
+        serde_json::json!({
+            "text": response,
+            "auto_dismiss_secs": 12
+        }),
+    );
 
     Ok(response)
 }
