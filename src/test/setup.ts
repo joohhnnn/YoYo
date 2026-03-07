@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
+// Polyfill browser APIs missing in jsdom
+globalThis.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 // Mock Tauri APIs
 const unlistenNoop = () => Promise.resolve(() => {});
 

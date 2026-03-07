@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 import { ActionButtons } from "./components/ActionButtons";
 import { ChatView } from "./components/ChatView";
 import { useActions } from "./hooks/useActions";
+import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
 import {
   checkNeedsOnboarding,
   startOnboarding,
@@ -56,23 +55,8 @@ export default function BubbleApp() {
   const [elapsed, setElapsed] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
-  // Dynamic window resize — measure the rendered bubble element via getBoundingClientRect.
-  // This is unaffected by body overflow:hidden (unlike scrollHeight).
-  const bubbleRef = useRef<HTMLDivElement>(null);
-  const lastHeight = useRef(0);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      if (!bubbleRef.current) return;
-      const h = Math.ceil(bubbleRef.current.getBoundingClientRect().height);
-      const clamped = Math.min(Math.max(h, 80), 520);
-      if (clamped === lastHeight.current) return;
-      lastHeight.current = clamped;
-      getCurrentWebviewWindow()
-        .setSize(new LogicalSize(340, clamped))
-        .catch(() => {});
-    });
-    return () => cancelAnimationFrame(frame);
-  });
+  // Dynamic window resize — ResizeObserver + MutationObserver based
+  const bubbleRef = useWindowAutoResize();
 
   useEffect(() => {
     // Load opacity setting
