@@ -18,6 +18,8 @@ export interface AnalysisResult {
   suggested_quest?: string;
   key_concepts?: string[];
   need_full_context?: boolean;
+  on_track?: boolean;
+  drift_message?: string;
 }
 
 export interface TaskItem {
@@ -62,4 +64,36 @@ export interface ActivityRecord {
   context: string;
   created_at: string;
   updated_at: string;
+}
+
+// Session types
+export interface Session {
+  id: string;
+  goal: string;
+  started_at: string;
+  ended_at?: string;
+  summary?: string;
+  status: string;
+}
+
+export interface TimelineEntry {
+  id: number;
+  session_id: string;
+  timestamp: string;
+  context: string;
+  app_name: string;
+}
+
+export interface SessionSummary {
+  session: Session;
+  timeline: TimelineEntry[];
+}
+
+export interface SpeechBubbleEvent {
+  text: string;
+  auto_dismiss_secs: number;
+}
+
+export interface SessionDriftEvent {
+  message: string;
 }
