@@ -39,6 +39,8 @@ pub struct Settings {
     #[serde(default = "default_scene_mode")]
     pub scene_mode: String, // "general" | "learning" | "working"
     #[serde(default)]
+    pub obsidian_enabled: bool,
+    #[serde(default)]
     pub obsidian_vault_path: String,
 }
 
@@ -80,6 +82,7 @@ impl Default for Settings {
             auto_analyze: true,
             analysis_depth: "normal".to_string(),
             scene_mode: "general".to_string(),
+            obsidian_enabled: false,
             obsidian_vault_path: String::new(),
         }
     }
@@ -349,7 +352,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     let send_image = effective_depth == "deep" || ocr_text.is_none();
 
     // Search Obsidian vault for relevant notes
-    let obsidian_context = if !data.settings.obsidian_vault_path.is_empty() {
+    let obsidian_context = if data.settings.obsidian_enabled && !data.settings.obsidian_vault_path.is_empty() {
         let mut keywords: Vec<&str> = Vec::new();
         if let Some(name) = app_name_ref {
             keywords.push(name);
@@ -883,9 +886,9 @@ pub async fn trigger_reflection(app: &AppHandle) -> Result<(), String> {
     user_data::save_reflection(&summary, total, &period_start, &period_end)?;
     user_data::update_context_with_reflection(&summary, &period_end)?;
 
-    // Sync to Obsidian vault if configured
+    // Sync to Obsidian vault if enabled
     let vault_path = &data.settings.obsidian_vault_path;
-    if !vault_path.is_empty() {
+    if data.settings.obsidian_enabled && !vault_path.is_empty() {
         if let Err(e) = crate::obsidian::sync_reflection(
             vault_path,
             &summary,

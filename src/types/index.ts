@@ -41,6 +41,7 @@ export interface Settings {
   auto_analyze: boolean;
   analysis_depth: "casual" | "normal" | "deep";
   scene_mode: "general" | "learning" | "working";
+  obsidian_enabled: boolean;
   obsidian_vault_path: string;
 }
 
