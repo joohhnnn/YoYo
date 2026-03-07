@@ -56,21 +56,31 @@ export default function BubbleApp() {
   const [elapsed, setElapsed] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
-  // Dynamic window resize
-  const contentRef = useRef<HTMLDivElement>(null);
+  // Dynamic window resize — measure the outer wrapper's full content height
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const lastHeight = useRef(0);
   const resizeWindow = useCallback(() => {
-    if (!contentRef.current) return;
-    const h = contentRef.current.scrollHeight;
+    if (!wrapperRef.current) return;
+    // scrollHeight gives the full content height even if visually clipped
+    const h = wrapperRef.current.scrollHeight;
     const clamped = Math.min(Math.max(h, 80), 520);
+    // Avoid redundant setSize calls
+    if (clamped === lastHeight.current) return;
+    lastHeight.current = clamped;
     getCurrentWebviewWindow()
       .setSize(new LogicalSize(340, clamped))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!contentRef.current) return;
-    const observer = new ResizeObserver(resizeWindow);
-    observer.observe(contentRef.current);
+    if (!wrapperRef.current) return;
+    const observer = new MutationObserver(resizeWindow);
+    // Watch for any DOM changes (children added/removed, text changes)
+    observer.observe(wrapperRef.current, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
     resizeWindow();
     return () => observer.disconnect();
   }, [resizeWindow]);
@@ -285,14 +295,14 @@ export default function BubbleApp() {
   // --- MAIN BUBBLE VIEW ---
   return (
     <div
+      ref={wrapperRef}
       className={`bubble-container ${visible ? "bubble-enter" : "bubble-exit"}`}
       style={{ opacity }}
     >
       <div
-        ref={contentRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none overflow-hidden flex flex-col max-h-[520px]"
+        text-white select-none flex flex-col"
       >
         {/* Header — pinned top */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
