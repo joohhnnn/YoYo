@@ -56,13 +56,14 @@ export default function BubbleApp() {
   const [elapsed, setElapsed] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
-  // Dynamic window resize — runs after every render, measures full page height
+  // Dynamic window resize — measure the rendered bubble element via getBoundingClientRect.
+  // This is unaffected by body overflow:hidden (unlike scrollHeight).
+  const bubbleRef = useRef<HTMLDivElement>(null);
   const lastHeight = useRef(0);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      // documentElement.scrollHeight = full page content height,
-      // unaffected by viewport/window size
-      const h = document.documentElement.scrollHeight;
+      if (!bubbleRef.current) return;
+      const h = Math.ceil(bubbleRef.current.getBoundingClientRect().height);
       const clamped = Math.min(Math.max(h, 80), 520);
       if (clamped === lastHeight.current) return;
       lastHeight.current = clamped;
@@ -287,6 +288,7 @@ export default function BubbleApp() {
       style={{ opacity }}
     >
       <div
+        ref={bubbleRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
         text-white select-none"
