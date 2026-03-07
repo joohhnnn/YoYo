@@ -86,6 +86,12 @@ pub fn run() {
                 }
             }
 
+            // Listen for speech-bubble events to show the speech bubble window
+            let app_for_bubble_event = app.handle().clone();
+            app.listen("speech-bubble", move |_event| {
+                show_speech_bubble(&app_for_bubble_event);
+            });
+
             // Listen for app-switch events and auto-analyze from Rust side.
             // Uses debounce counter: only the latest switch triggers analysis after settling.
             let app_for_switch = app.handle().clone();
@@ -367,6 +373,58 @@ fn position_bubble_top_right(window: &tauri::WebviewWindow) {
         let scale = monitor.scale_factor();
         let x = (size.width as f64 / scale) - 360.0;
         let y = 40.0; // Below menu bar
+        let _ = window.set_position(LogicalPosition::new(x, y));
+    }
+}
+
+/// Create or show the speech bubble window next to the BubbleApp.
+fn show_speech_bubble(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("speech-bubble") {
+        position_speech_bubble(&window, app);
+        let _ = window.show();
+    } else {
+        match WebviewWindowBuilder::new(
+            app,
+            "speech-bubble",
+            WebviewUrl::App("index.html".into()),
+        )
+        .title("YoYo Speech")
+        .inner_size(280.0, 120.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .visible(false)
+        .skip_taskbar(true)
+        .focused(false)
+        .build()
+        {
+            Ok(window) => {
+                position_speech_bubble(&window, app);
+                let _ = window.show();
+            }
+            Err(e) => eprintln!("Failed to create speech bubble window: {}", e),
+        }
+    }
+}
+
+fn position_speech_bubble(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
+    // Position to the left of the BubbleApp
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        if let Ok(pos) = bubble.outer_position() {
+            let scale = bubble.scale_factor().unwrap_or(1.0);
+            let x = (pos.x as f64 / scale) - 290.0;
+            let y = (pos.y as f64 / scale) + 40.0;
+            let _ = window.set_position(LogicalPosition::new(x, y));
+            return;
+        }
+    }
+    // Fallback: top-right minus offset
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let x = (size.width as f64 / scale) - 650.0;
+        let y = 80.0;
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
 }
