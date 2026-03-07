@@ -333,6 +333,50 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </span>
             </div>
           </SettingRow>
+
+          {/* Obsidian */}
+          <SettingRow label="Obsidian">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  settings.obsidian_vault_path
+                    ? "bg-green-500"
+                    : "bg-zinc-600"
+                }`}
+              />
+              <input
+                type="text"
+                value={settings.obsidian_vault_path}
+                onChange={(e) =>
+                  update({ obsidian_vault_path: e.target.value })
+                }
+                placeholder="Vault path (empty = disabled)"
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1
+                  text-[10px] text-white placeholder-zinc-600 outline-none
+                  focus:border-blue-500/50"
+              />
+              <button
+                onClick={async () => {
+                  const vaults = await invoke<string[]>(
+                    "detect_obsidian_vaults"
+                  );
+                  if (vaults.length > 0) {
+                    update({ obsidian_vault_path: vaults[0] });
+                  }
+                }}
+                className="px-1.5 py-1 text-[9px] bg-zinc-800 text-zinc-400
+                  hover:bg-zinc-700 hover:text-zinc-200 rounded transition-colors"
+                title="Auto-detect vault"
+              >
+                Detect
+              </button>
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-1">
+              {settings.obsidian_vault_path
+                ? "Reflections sync to vault/YoYo/"
+                : "Set path to enable Obsidian sync"}
+            </p>
+          </SettingRow>
         </div>
       ) : (
         /* Profile / Context editor */
