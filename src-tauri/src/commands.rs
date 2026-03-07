@@ -1,6 +1,7 @@
 use crate::accessibility;
 use crate::ai_engine::{self, AnalysisResult};
 use crate::focus_capture;
+use crate::obsidian;
 use crate::ocr;
 use crate::screenshot;
 use crate::user_data::{self, ActivityRecord};
@@ -347,6 +348,20 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
     // - fallback: if OCR failed (no text), always send image
     let send_image = effective_depth == "deep" || ocr_text.is_none();
 
+    // Search Obsidian vault for relevant notes
+    let obsidian_context = if !data.settings.obsidian_vault_path.is_empty() {
+        let mut keywords: Vec<&str> = Vec::new();
+        if let Some(name) = app_name_ref {
+            keywords.push(name);
+        }
+        for quest in &main_quests {
+            keywords.extend(quest.split_whitespace().take(3));
+        }
+        obsidian::search_vault(&data.settings.obsidian_vault_path, &keywords)
+    } else {
+        None
+    };
+
     let _ = app.emit("analysis-progress", "Analyzing...");
     let mut result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::analyze_with_api(
@@ -363,6 +378,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             is_focus_crop,
             app_name_ref,
             windows_text.as_deref(),
+            obsidian_context.as_deref(),
         )
         .await
     } else {
@@ -379,6 +395,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             is_focus_crop,
             app_name_ref,
             windows_text.as_deref(),
+            obsidian_context.as_deref(),
         )
         .await
     }?;
@@ -408,6 +425,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 false, // not a focus crop anymore
                 app_name_ref,
                 windows_text.as_deref(),
+                obsidian_context.as_deref(),
             )
             .await
         } else {
@@ -424,6 +442,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 false,
                 app_name_ref,
                 windows_text.as_deref(),
+                obsidian_context.as_deref(),
             )
             .await
         }?;

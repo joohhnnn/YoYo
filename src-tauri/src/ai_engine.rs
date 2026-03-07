@@ -140,6 +140,7 @@ pub fn build_full_prompt_with_history(
     is_focus_crop: bool,
     app_name: Option<&str>,
     open_windows: Option<&str>,
+    obsidian_context: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -242,6 +243,16 @@ pub fn build_full_prompt_with_history(
     // Depth-specific instruction
     parts.push(depth_instruction(analysis_depth).to_string());
 
+    // Inject relevant Obsidian vault notes
+    if let Some(notes) = obsidian_context {
+        if !notes.is_empty() {
+            parts.push(format!(
+                "[Obsidian Notes]\nRelevant notes from the user's knowledge base:\n{}",
+                notes
+            ));
+        }
+    }
+
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
@@ -262,6 +273,7 @@ pub async fn analyze_with_cli(
     is_focus_crop: bool,
     app_name: Option<&str>,
     open_windows: Option<&str>,
+    obsidian_context: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt_with_history(
         language,
@@ -273,6 +285,7 @@ pub async fn analyze_with_cli(
         is_focus_crop,
         app_name,
         open_windows,
+        obsidian_context,
     );
 
     let prompt = if send_image {
@@ -332,6 +345,7 @@ pub async fn analyze_with_api(
     is_focus_crop: bool,
     app_name: Option<&str>,
     open_windows: Option<&str>,
+    obsidian_context: Option<&str>,
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt_with_history(
         language,
@@ -343,6 +357,7 @@ pub async fn analyze_with_api(
         is_focus_crop,
         app_name,
         open_windows,
+        obsidian_context,
     );
 
     let content = if send_image {
