@@ -32,3 +32,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "6"
 chrono = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
+uuid = { version = "1.22.0", features = ["v4"] }

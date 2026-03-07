@@ -153,6 +153,24 @@ fn init_tables(conn: &Connection) -> Result<(), String> {
             period_end      TEXT,
             created_at      TEXT DEFAULT (datetime('now','localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            id         TEXT PRIMARY KEY,
+            goal       TEXT NOT NULL,
+            started_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            ended_at   TEXT,
+            summary    TEXT,
+            status     TEXT DEFAULT 'active'
+        );
+
+        CREATE TABLE IF NOT EXISTS session_timeline (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            timestamp  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            context    TEXT NOT NULL,
+            app_name   TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        );
         ",
     )
     .map_err(|e| format!("Failed to initialize database tables: {}", e))
@@ -191,6 +209,35 @@ pub struct ReflectionRecord {
     pub period_start: String,
     pub period_end: String,
     pub created_at: String,
+}
+
+// ---------------------------------------------------------------------------
+// Session mode
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Session {
+    pub id: String,
+    pub goal: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub summary: Option<String>,
+    pub status: String, // "active" | "completed" | "abandoned"
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimelineEntry {
+    pub id: i64,
+    pub session_id: String,
+    pub timestamp: String,
+    pub context: String,
+    pub app_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SessionSummary {
+    pub session: Session,
+    pub timeline: Vec<TimelineEntry>,
 }
 
 /// Character bigram set similarity — works well for both Chinese and English text.
@@ -376,4 +423,159 @@ pub fn update_context_with_reflection(summary: &str, timestamp: &str) -> Result<
         cleaned, summary, timestamp
     );
     write_context(&updated)
+}
+
+// ---------------------------------------------------------------------------
+// Session CRUD
+// ---------------------------------------------------------------------------
+
+/// Create a new session. Returns the Session struct.
+pub fn create_session(goal: &str) -> Result<Session, String> {
+    let conn = get_db()?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    conn.execute(
+        "INSERT INTO sessions (id, goal, started_at) VALUES (?1, ?2, ?3)",
+        params![id, goal, now],
+    )
+    .map_err(|e| format!("Failed to create session: {}", e))?;
+
+    Ok(Session {
+        id,
+        goal: goal.to_string(),
+        started_at: now,
+        ended_at: None,
+        summary: None,
+        status: "active".to_string(),
+    })
+}
+
+/// End the active session — set status + ended_at + summary.
+pub fn end_session(session_id: &str, summary: &str, status: &str) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "UPDATE sessions SET ended_at = datetime('now','localtime'), summary = ?1, status = ?2 WHERE id = ?3",
+        params![summary, status, session_id],
+    )
+    .map_err(|e| format!("Failed to end session: {}", e))?;
+    Ok(())
+}
+
+/// Get a session by ID.
+pub fn get_session(session_id: &str) -> Result<Option<Session>, String> {
+    let conn = get_db()?;
+    conn.query_row(
+        "SELECT id, goal, started_at, ended_at, summary, status FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| {
+            Ok(Session {
+                id: row.get(0)?,
+                goal: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+                summary: row.get(4)?,
+                status: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// Get the currently active session from DB (for app restart recovery).
+pub fn get_active_session_from_db() -> Result<Option<Session>, String> {
+    let conn = get_db()?;
+    conn.query_row(
+        "SELECT id, goal, started_at, ended_at, summary, status FROM sessions WHERE status = 'active' ORDER BY started_at DESC LIMIT 1",
+        [],
+        |row| {
+            Ok(Session {
+                id: row.get(0)?,
+                goal: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+                summary: row.get(4)?,
+                status: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// Get recent sessions for the idle view.
+pub fn get_session_history(limit: u32) -> Result<Vec<Session>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, goal, started_at, ended_at, summary, status FROM sessions ORDER BY started_at DESC LIMIT ?1",
+        )
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let sessions = stmt
+        .query_map(params![limit], |row| {
+            Ok(Session {
+                id: row.get(0)?,
+                goal: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+                summary: row.get(4)?,
+                status: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query sessions: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(sessions)
+}
+
+/// Add a timeline entry to a session.
+pub fn add_timeline_entry(
+    session_id: &str,
+    context: &str,
+    app_name: &str,
+) -> Result<TimelineEntry, String> {
+    let conn = get_db()?;
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    conn.execute(
+        "INSERT INTO session_timeline (session_id, timestamp, context, app_name) VALUES (?1, ?2, ?3, ?4)",
+        params![session_id, now, context, app_name],
+    )
+    .map_err(|e| format!("Failed to add timeline entry: {}", e))?;
+
+    let id = conn.last_insert_rowid();
+    Ok(TimelineEntry {
+        id,
+        session_id: session_id.to_string(),
+        timestamp: now,
+        context: context.to_string(),
+        app_name: app_name.to_string(),
+    })
+}
+
+/// Get all timeline entries for a session.
+pub fn get_session_timeline(session_id: &str) -> Result<Vec<TimelineEntry>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, timestamp, context, app_name FROM session_timeline WHERE session_id = ?1 ORDER BY timestamp ASC",
+        )
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let entries = stmt
+        .query_map(params![session_id], |row| {
+            Ok(TimelineEntry {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                timestamp: row.get(2)?,
+                context: row.get(3)?,
+                app_name: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query timeline: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(entries)
 }
