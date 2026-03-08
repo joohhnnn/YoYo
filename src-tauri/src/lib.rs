@@ -96,6 +96,19 @@ pub fn run() {
                 }
             }
 
+            // Pre-create speech-bubble window (hidden) so JS event listener is ready
+            let _ = WebviewWindowBuilder::new(app, "speech-bubble", WebviewUrl::App("index.html".into()))
+                .title("YoYo Speech")
+                .inner_size(280.0, 120.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .visible(false)
+                .skip_taskbar(true)
+                .focused(false)
+                .build();
+
             // Listen for speech-bubble events to show the speech bubble window
             let app_for_bubble_event = app.handle().clone();
             app.listen("speech-bubble", move |_event| {

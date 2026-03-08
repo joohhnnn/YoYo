@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default permissions for YoYo",
-  "windows": ["main", "bubble"],
+  "windows": ["main", "bubble", "speech-bubble"],
   "permissions": [
     "core:default",
     "core:window:default",

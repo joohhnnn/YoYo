@@ -231,6 +231,8 @@ export default function BubbleApp() {
     try {
       await sendSessionMessage(chatInput.trim());
       setChatInput("");
+    } catch (e) {
+      console.error("Session chat error:", e);
     } finally {
       setSessionChatLoading(false);
     }
