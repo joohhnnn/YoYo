@@ -10,6 +10,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-is-visible",
+    "core:window:allow-set-size",
     "positioner:default",
     "positioner:allow-move-window",
     "global-shortcut:default",
