@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ActionButtons } from "./components/ActionButtons";
 import { ChatView } from "./components/ChatView";
 import { useActions } from "./hooks/useActions";
+import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
 import {
   checkNeedsOnboarding,
   startOnboarding,
@@ -53,6 +54,9 @@ export default function BubbleApp() {
   // Timer
   const [elapsed, setElapsed] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+
+  // Dynamic window resize
+  const { bubbleRef, contentRef } = useWindowAutoResize();
 
   useEffect(() => {
     // Load opacity setting
@@ -268,9 +272,10 @@ export default function BubbleApp() {
       style={{ opacity }}
     >
       <div
+        ref={bubbleRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
         shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none overflow-hidden flex flex-col max-h-[460px]"
+        text-white select-none overflow-hidden flex flex-col max-h-screen"
       >
         {/* Header — pinned top */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
@@ -304,6 +309,7 @@ export default function BubbleApp() {
 
         {/* Scrollable content area */}
         <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={contentRef}>
           {/* Session goal banner */}
           {session && (
             <div className="mx-4 mb-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
@@ -403,6 +409,7 @@ export default function BubbleApp() {
               )}
             </>
           )}
+          </div>
         </div>
 
         {/* Bottom area — pinned bottom */}

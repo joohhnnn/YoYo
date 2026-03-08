@@ -246,7 +246,7 @@ describe("BubbleApp", () => {
   });
 
   describe("Layout: flex container with scroll", () => {
-    it("inner container uses flex-col with overflow-hidden for proper layout", async () => {
+    it("inner container uses flex-col with overflow-hidden and max-h-screen", async () => {
       setupInvokeMock({ session: mockSession, timeline: mockTimeline, result: mockResult });
       const { container } = render(<BubbleApp />);
       await flush();
@@ -256,6 +256,7 @@ describe("BubbleApp", () => {
       expect(innerDiv?.className).toContain("flex");
       expect(innerDiv?.className).toContain("flex-col");
       expect(innerDiv?.className).toContain("overflow-hidden");
+      expect(innerDiv?.className).toContain("max-h-screen");
     });
 
     it("content area uses flex-1 + min-h-0 for scrollable overflow", async () => {
