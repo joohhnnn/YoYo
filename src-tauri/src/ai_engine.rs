@@ -16,6 +16,10 @@ pub struct ActionParams {
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,8 +92,9 @@ Each step must use one of these action types:
 - copy_to_clipboard: Copy text (provide the text in params)
 - run_command: Run a terminal command (provide the command in params). Keep commands safe and non-destructive.
 - notify: Send a notification (provide the message in params)
+- claude_code: Run Claude Code CLI in a directory with a prompt (provide params.prompt and params.directory). Use for complex coding tasks like fixing bugs, writing code, or answering technical questions about a project.
 
-Set "needs_confirmation" to true for plans with run_command or multiple steps.
+Set "needs_confirmation" to true for plans with run_command, claude_code, or multiple steps.
 Set it to false for simple single-step actions (open_url, open_app).
 
 Respond ONLY with valid JSON, no other text:

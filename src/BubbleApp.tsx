@@ -19,6 +19,7 @@ export default function BubbleApp() {
   const [executingPlan, setExecutingPlan] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const [inputValue, setInputValue] = useState("");
+  const [failedStep, setFailedStep] = useState(-1);
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -139,7 +140,14 @@ export default function BubbleApp() {
     setIntentResult(null);
     setExecutingPlan(false);
     setCurrentStep(-1);
+    setFailedStep(-1);
+    setError(null);
     clearDismissTimer();
+  };
+
+  const handleCancel = async () => {
+    await invoke("cancel_execution").catch(() => {});
+    goAmbient();
   };
 
   const triggerAnalysis = () => {
@@ -185,9 +193,12 @@ export default function BubbleApp() {
     triggerIntent(text);
   };
 
-  const executePlan = async (steps: PlanStep[]) => {
+  const executePlan = async (steps: PlanStep[], startFrom = 0) => {
+    await invoke("start_execution"); // reset abort flag
     setExecutingPlan(true);
-    for (let i = 0; i < steps.length; i++) {
+    setFailedStep(-1);
+    setError(null);
+    for (let i = startFrom; i < steps.length; i++) {
       setCurrentStep(i);
       try {
         await invoke("execute_action", {
@@ -196,6 +207,7 @@ export default function BubbleApp() {
         });
       } catch (e) {
         setError(`Step ${i + 1} failed: ${e}`);
+        setFailedStep(i);
         setExecutingPlan(false);
         setCurrentStep(-1);
         return;
@@ -273,7 +285,7 @@ export default function BubbleApp() {
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {state === "working" && (
               <button
-                onClick={goAmbient}
+                onClick={handleCancel}
                 className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
               >
                 Cancel
@@ -294,7 +306,7 @@ export default function BubbleApp() {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div ref={contentRef}>
             {/* Error message */}
-            {error && state === "active" && (
+            {error && (state === "active" || state === "done") && (
               <div className="px-3 pb-2">
                 <p className="text-[12px] text-red-400 bg-red-950/30 rounded px-2 py-1.5">
                   {error}
@@ -415,6 +427,43 @@ export default function BubbleApp() {
                     </svg>
                     <span className="text-[11px] text-zinc-400">Done</span>
                   </div>
+                ) : failedStep >= 0 ? (
+                  <>
+                    <div className="px-3 py-2 space-y-1.5">
+                      {intentResult.plan.map((step, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          {i < failedStep ? (
+                            <svg className="w-3 h-3 text-violet-400 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                              <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : i === failedStep ? (
+                            <svg className="w-3 h-3 text-red-400 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                              <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <span className="w-3 h-3 rounded-full border border-zinc-600 flex-shrink-0" />
+                          )}
+                          <span className={`text-[12px] ${i < failedStep ? "text-zinc-300" : i === failedStep ? "text-red-400" : "text-zinc-600"}`}>
+                            {step.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-3 pb-3 pt-1 flex gap-2">
+                      <button
+                        onClick={() => executePlan(intentResult.plan, failedStep)}
+                        className="flex-1 text-[12px] px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-colors"
+                      >
+                        Retry step {failedStep + 1}
+                      </button>
+                      <button
+                        onClick={goAmbient}
+                        className="text-[12px] px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <div className="px-3 py-2 space-y-1.5">

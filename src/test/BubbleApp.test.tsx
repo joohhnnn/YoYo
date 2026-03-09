@@ -350,6 +350,111 @@ describe("BubbleApp State Machine", () => {
       });
     });
 
+    it("cancel during working calls cancel_execution", async () => {
+      // Make understand_intent hang so we stay in working state
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "understand_intent": return new Promise(() => {}); // never resolves
+          case "cancel_execution": return Promise.resolve(null);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Type text and submit to enter working state
+      const input = screen.getByPlaceholderText("Ask YoYo anything...");
+      await act(async () => {
+        fireEvent.change(input, { target: { value: "do something" } });
+      });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      // Should be in working state with Cancel button visible
+      expect(screen.getByText("Cancel")).toBeInTheDocument();
+
+      // Click Cancel
+      await act(async () => {
+        fireEvent.click(screen.getByText("Cancel"));
+      });
+
+      expect(invoke).toHaveBeenCalledWith("cancel_execution");
+    });
+
+    it("shows retry button when step fails", async () => {
+      let callCount = 0;
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "start_execution": return Promise.resolve(null);
+          case "execute_action":
+            callCount++;
+            if (callCount === 2) return Promise.reject("Network error");
+            return Promise.resolve(null);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      // Trigger intent result with needs_confirmation
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      // Click Confirm to start execution
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      // Should show retry button for step 2
+      expect(screen.getByText("Retry step 2")).toBeInTheDocument();
+    });
+
+    it("shows claude_code step in plan", async () => {
+      setupInvokeMock();
+      const claudeIntent: IntentResult = {
+        understanding: "User wants to fix a bug",
+        plan: [
+          { action_type: "claude_code", label: "Fix bug with Claude", params: { prompt: "fix the bug", directory: "/tmp" } },
+        ],
+        needs_confirmation: true,
+      };
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: claudeIntent });
+      });
+
+      expect(screen.getByText("Fix bug with Claude")).toBeInTheDocument();
+    });
+
     it("hint text changes based on input content", async () => {
       setupInvokeMock();
       const { container } = render(<BubbleApp />);

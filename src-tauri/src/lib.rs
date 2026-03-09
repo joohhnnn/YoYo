@@ -12,7 +12,7 @@ mod window_monitor;
 
 use crate::ai_engine::AnalysisResult;
 use crate::window_monitor::AppSwitchEvent;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use tauri::{
     tray::TrayIconEvent, Emitter, Listener, LogicalPosition, Manager, WebviewUrl,
@@ -29,6 +29,8 @@ pub struct AppState {
     pub current_app_name: Mutex<String>,
     pub current_bundle_id: Mutex<String>,
     pub current_app_pid: AtomicI64,
+    // Abort flag for cancelling plan execution mid-step
+    pub abort_flag: AtomicBool,
 }
 
 pub fn run() {
@@ -44,6 +46,7 @@ pub fn run() {
             current_app_name: Mutex::new(String::new()),
             current_bundle_id: Mutex::new(String::new()),
             current_app_pid: AtomicI64::new(0),
+            abort_flag: AtomicBool::new(false),
         })
         .setup(|app| {
             // Start window monitor
@@ -217,6 +220,8 @@ pub fn run() {
             commands::analysis::take_screenshot,
             commands::analysis::analyze_screen,
             commands::actions::execute_action,
+            commands::actions::start_execution,
+            commands::actions::cancel_execution,
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::get_tasks,

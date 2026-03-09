@@ -1,4 +1,21 @@
-use tauri::AppHandle;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Reset the abort flag — call at the start of plan execution.
+#[tauri::command]
+pub fn start_execution(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<crate::AppState>();
+    state.abort_flag.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Set the abort flag — call to cancel mid-execution.
+#[tauri::command]
+pub fn cancel_execution(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<crate::AppState>();
+    state.abort_flag.store(true, Ordering::Relaxed);
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn execute_action(
@@ -6,6 +23,15 @@ pub async fn execute_action(
     action_type: String,
     params: serde_json::Value,
 ) -> Result<(), String> {
+    // Check abort flag before each step
+    let state = app.state::<crate::AppState>();
+    if state.abort_flag.load(Ordering::Relaxed) {
+        return Err("Execution cancelled".to_string());
+    }
+
+    // Emit step progress event
+    let _ = app.emit("step-progress", &action_type);
+
     match action_type.as_str() {
         "open_url" => {
             let url = params["url"].as_str().ok_or("Missing url parameter")?;
@@ -80,6 +106,35 @@ pub async fn execute_action(
                 .show()
                 .map_err(|e| format!("Failed to send notification: {}", e))?;
             Ok(())
+        }
+        "claude_code" => {
+            let prompt = params["prompt"]
+                .as_str()
+                .ok_or("Missing prompt parameter")?;
+            let dir = params["directory"].as_str().unwrap_or(".");
+
+            // Validate directory exists
+            let dir_path = std::path::Path::new(dir);
+            if !dir_path.exists() {
+                return Err(format!("Directory not found: {}", dir));
+            }
+
+            // Spawn Claude CLI as async subprocess
+            let output = tokio::process::Command::new("claude")
+                .args(["-p", prompt])
+                .current_dir(dir_path)
+                .output()
+                .await
+                .map_err(|e| format!("Failed to run claude: {}", e))?;
+
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let _ = app.emit("step-output", &stdout);
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                Err(format!("Claude CLI failed: {}", stderr))
+            }
         }
         _ => Err(format!("Unknown action type: {}", action_type)),
     }

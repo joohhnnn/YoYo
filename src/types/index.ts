@@ -6,6 +6,8 @@ export interface ActionParams {
   text?: string;
   command?: string;
   message?: string;
+  prompt?: string;
+  directory?: string;
 }
 
 export interface SuggestedAction {
