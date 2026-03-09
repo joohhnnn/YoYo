@@ -204,19 +204,19 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::take_screenshot,
-            commands::analyze_screen,
-            commands::execute_action,
-            commands::get_settings,
-            commands::save_settings,
-            commands::get_tasks,
-            commands::save_tasks,
-            commands::get_profile,
-            commands::save_profile,
-            commands::get_context,
-            commands::save_context,
-            commands::get_last_analysis,
-            commands::get_recent_activities,
+            commands::analysis::take_screenshot,
+            commands::analysis::analyze_screen,
+            commands::actions::execute_action,
+            commands::settings::get_settings,
+            commands::settings::save_settings,
+            commands::settings::get_tasks,
+            commands::settings::save_tasks,
+            commands::settings::get_profile,
+            commands::settings::save_profile,
+            commands::settings::get_context,
+            commands::settings::save_context,
+            commands::analysis::get_last_analysis,
+            commands::activity::get_recent_activities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");

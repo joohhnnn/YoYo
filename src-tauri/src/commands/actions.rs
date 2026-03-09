@@ -1,0 +1,173 @@
+use tauri::AppHandle;
+
+#[tauri::command]
+pub async fn execute_action(
+    app: AppHandle,
+    action_type: String,
+    params: serde_json::Value,
+) -> Result<(), String> {
+    match action_type.as_str() {
+        "open_url" => {
+            let url = params["url"].as_str().ok_or("Missing url parameter")?;
+            // Only allow http/https URLs to prevent file:// or custom scheme attacks
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(format!("Blocked URL with unsupported scheme: {}", url));
+            }
+            open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
+        }
+        "open_app" => {
+            let app_id = params["app"].as_str().ok_or("Missing app parameter")?;
+            // Sanitize: only allow alphanumeric, spaces, dots, hyphens
+            if !app_id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '-')
+            {
+                return Err("Invalid app identifier".to_string());
+            }
+            // Use bundle_id (-b) for reverse-DNS identifiers, app name (-a) for plain names
+            let is_bundle_id = app_id.contains('.') && !app_id.contains(' ');
+            let flag = if is_bundle_id { "-b" } else { "-a" };
+            let output = std::process::Command::new("open")
+                .args([flag, app_id])
+                .output()
+                .map_err(|e| format!("Failed to open app: {}", e))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).to_string())
+            }
+        }
+        "copy_to_clipboard" => {
+            let text = params["text"].as_str().ok_or("Missing text parameter")?;
+            let mut child = std::process::Command::new("pbcopy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to run pbcopy: {}", e))?;
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("Failed to write to pbcopy: {}", e))?;
+            child.wait().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        "run_command" => {
+            let cmd = params["command"]
+                .as_str()
+                .ok_or("Missing command parameter")?;
+            validate_command(cmd)?;
+            let output = std::process::Command::new("sh")
+                .args(["-c", cmd])
+                .output()
+                .map_err(|e| format!("Failed to run command: {}", e))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).to_string())
+            }
+        }
+        "notify" => {
+            let message = params["message"]
+                .as_str()
+                .ok_or("Missing message parameter")?;
+            // Use tauri-plugin-notification — no shell injection risk
+            tauri_plugin_notification::NotificationExt::notification(&app)
+                .builder()
+                .title("YoYo")
+                .body(message)
+                .show()
+                .map_err(|e| format!("Failed to send notification: {}", e))?;
+            Ok(())
+        }
+        _ => Err(format!("Unknown action type: {}", action_type)),
+    }
+}
+
+/// Validate a shell command against dangerous patterns.
+/// Uses an expanded blocklist + structural pattern detection.
+fn validate_command(cmd: &str) -> Result<(), String> {
+    let lower = cmd.to_lowercase();
+
+    // Blocked command patterns (case-insensitive)
+    let blocked_patterns = [
+        "rm -rf",
+        "rm -r -f",
+        "rm -fr",
+        "sudo",
+        "su -",
+        "mkfs",
+        "fdisk",
+        "parted",
+        "dd if=",
+        "dd of=",
+        "> /dev/",
+        ">/dev/",
+        "chmod -r 777",
+        "chmod 777",
+        "curl | sh",
+        "curl |sh",
+        "curl|sh",
+        "wget | sh",
+        "wget |sh",
+        "wget|sh",
+        "curl | bash",
+        "curl |bash",
+        "curl|bash",
+        "wget | bash",
+        "wget |bash",
+        "wget|bash",
+        "eval ",
+        "exec ",
+        ":(){ ",
+        ":(){", // fork bomb
+        "/etc/passwd",
+        "/etc/shadow",
+        "launchctl",
+        "defaults write",
+        "networksetup",
+        "systemsetup",
+        "osascript", // prevent AppleScript via command
+        "security delete",
+        "security add",
+        "killall",
+        "pkill -9",
+        "shutdown",
+        "reboot",
+        "halt",
+    ];
+
+    for pattern in &blocked_patterns {
+        if lower.contains(pattern) {
+            return Err(format!("Blocked dangerous command pattern: {}", pattern));
+        }
+    }
+
+    // Block shell injection patterns: $(...), `...`, ${...}
+    if cmd.contains("$(") || cmd.contains('`') || cmd.contains("${") {
+        return Err("Blocked: command substitution not allowed".to_string());
+    }
+
+    // Block output redirection to arbitrary files (allow /dev/null)
+    let stripped = cmd.replace("/dev/null", "");
+    if stripped.contains(">>") || stripped.contains("> /") || stripped.contains(">/") {
+        return Err("Blocked: output redirection not allowed".to_string());
+    }
+
+    // Block piping to interpreters
+    let pipe_targets = ["sh", "bash", "zsh", "python", "perl", "ruby", "node"];
+    if let Some(pipe_pos) = cmd.find('|') {
+        let after_pipe = cmd[pipe_pos + 1..].trim();
+        for target in &pipe_targets {
+            if after_pipe.starts_with(target)
+                && after_pipe[target.len()..].starts_with(|c: char| c.is_whitespace() || c == '\0')
+                || after_pipe == *target
+            {
+                return Err(format!("Blocked: piping to {} not allowed", target));
+            }
+        }
+    }
+
+    Ok(())
+}
