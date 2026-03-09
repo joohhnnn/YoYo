@@ -781,7 +781,7 @@ fn format_relative_time(timestamp: &str, now: &chrono::NaiveDateTime) -> String 
 /// Simple text-only chat via CLI (no image).
 pub async fn simple_chat_cli(prompt: &str, model: &str) -> Result<String, String> {
     let output = tokio::process::Command::new("claude")
-        .args(["-p", prompt, "--model", model, "--no-input"])
+        .args(["-p", prompt, "--model", model])
         .output()
         .await
         .map_err(|e| format!("Claude CLI failed: {}", e))?;
