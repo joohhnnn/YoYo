@@ -87,12 +87,11 @@ fn db_path() -> Result<PathBuf, String> {
     Ok(yoyo_dir()?.join("yoyo.db"))
 }
 
-/// Open (or create) the database and ensure all tables exist.
-/// Kept for initial setup in `ensure_initialized()`.
+/// Open (or create) the database and run pending migrations.
 fn open_db_fresh() -> Result<Connection, String> {
     let path = db_path()?;
     let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
-    init_tables(&conn)?;
+    run_migrations(&conn)?;
     Ok(conn)
 }
 
@@ -108,47 +107,117 @@ fn get_db() -> Result<std::sync::MutexGuard<'static, Connection>, String> {
         .map_err(|e| format!("Database lock poisoned: {}", e))
 }
 
-fn init_tables(conn: &Connection) -> Result<(), String> {
+// ---------------------------------------------------------------------------
+// Versioned migration system
+// ---------------------------------------------------------------------------
+
+/// Get current schema version from the meta table. Returns 0 if no version set.
+fn get_schema_version(conn: &Connection) -> i64 {
+    // meta table may not exist yet
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = 'schema_version'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|v| v.parse::<i64>().ok())
+    .unwrap_or(0)
+}
+
+fn set_schema_version(conn: &Connection, version: i64) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?1)",
+        params![version.to_string()],
+    )
+    .map_err(|e| format!("Failed to set schema version: {}", e))?;
+    Ok(())
+}
+
+/// Run all pending migrations in order.
+fn run_migrations(conn: &Connection) -> Result<(), String> {
+    // Ensure meta table exists first (needed to track versions)
     conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS meta (
+        "CREATE TABLE IF NOT EXISTS meta (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS vocab (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            word         TEXT NOT NULL,
-            meaning      TEXT,
-            context      TEXT,
-            source       TEXT,
-            learned_at   TEXT DEFAULT (datetime('now')),
-            review_count INTEGER DEFAULT 0,
-            next_review  TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS learning_progress (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            topic      TEXT NOT NULL,
-            item       TEXT NOT NULL,
-            status     TEXT DEFAULT 'new',
-            notes      TEXT,
-            updated_at TEXT DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS activity_log (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            app_name     TEXT NOT NULL DEFAULT '',
-            bundle_id    TEXT NOT NULL DEFAULT '',
-            context      TEXT NOT NULL,
-            actions_json TEXT DEFAULT '[]',
-            created_at   TEXT DEFAULT (datetime('now','localtime')),
-            updated_at   TEXT DEFAULT (datetime('now','localtime'))
-        );
-
-        ",
+        );",
     )
-    .map_err(|e| format!("Failed to initialize database tables: {}", e))
+    .map_err(|e| format!("Failed to create meta table: {}", e))?;
+
+    let current = get_schema_version(conn);
+
+    // Migration 1: V1 baseline tables
+    if current < 1 {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_name     TEXT NOT NULL DEFAULT '',
+                bundle_id    TEXT NOT NULL DEFAULT '',
+                context      TEXT NOT NULL,
+                actions_json TEXT DEFAULT '[]',
+                created_at   TEXT DEFAULT (datetime('now','localtime')),
+                updated_at   TEXT DEFAULT (datetime('now','localtime'))
+            );
+            ",
+        )
+        .map_err(|e| format!("Migration 1 failed: {}", e))?;
+        set_schema_version(conn, 1)?;
+        eprintln!("DB migration 1 applied: baseline tables");
+    }
+
+    // Migration 2: V2 tables (workflows, executions, knowledge)
+    if current < 2 {
+        conn.execute_batch(
+            "
+            -- Drop unused V1 tables
+            DROP TABLE IF EXISTS vocab;
+            DROP TABLE IF EXISTS learning_progress;
+
+            -- Learned workflows: trigger context + steps
+            CREATE TABLE IF NOT EXISTS workflows (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                trigger_context TEXT,
+                steps_json      TEXT NOT NULL DEFAULT '[]',
+                success_count   INTEGER DEFAULT 0,
+                fail_count      INTEGER DEFAULT 0,
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                updated_at      TEXT DEFAULT (datetime('now','localtime'))
+            );
+
+            -- Execution history for workflows and ad-hoc actions
+            CREATE TABLE IF NOT EXISTS executions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                workflow_id   INTEGER,
+                input_text    TEXT,
+                screen_context TEXT,
+                plan_json     TEXT,
+                result_json   TEXT,
+                status        TEXT DEFAULT 'pending',
+                user_feedback TEXT,
+                created_at    TEXT DEFAULT (datetime('now','localtime')),
+                completed_at  TEXT,
+                FOREIGN KEY (workflow_id) REFERENCES workflows(id)
+            );
+
+            -- Knowledge store (vocab, notes, etc. for Phase 2)
+            CREATE TABLE IF NOT EXISTS knowledge (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind        TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                source      TEXT,
+                metadata    TEXT DEFAULT '{}',
+                created_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
+            ",
+        )
+        .map_err(|e| format!("Migration 2 failed: {}", e))?;
+        set_schema_version(conn, 2)?;
+        eprintln!("DB migration 2 applied: V2 tables (workflows, executions, knowledge)");
+    }
+
+    Ok(())
 }
 
 /// Initialize the ~/.yoyo directory and all default files on app startup.
