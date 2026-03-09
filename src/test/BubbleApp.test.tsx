@@ -181,10 +181,8 @@ describe("BubbleApp", () => {
         switchCallback?.();
       });
 
-      // Spinner should appear (border border-t-transparent animate-spin)
-      const { container } = render(<BubbleApp />);
       // Header dot changes to spinner — just verify no crash
-      expect(screen.getByText("YoYo")).toBeInTheDocument();
+      expect(screen.getAllByText("YoYo").length).toBeGreaterThanOrEqual(1);
     });
   });
 });

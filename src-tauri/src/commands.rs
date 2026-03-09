@@ -676,4 +676,3 @@ fn validate_command(cmd: &str) -> Result<(), String> {
 pub fn get_recent_activities(limit: Option<usize>) -> Result<Vec<ActivityRecord>, String> {
     user_data::get_recent_activities(limit.unwrap_or(30))
 }
-
