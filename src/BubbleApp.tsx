@@ -1,72 +1,139 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { register } from "@tauri-apps/plugin-global-shortcut";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
-import type { AnalysisResult, Settings, SuggestedAction } from "./types";
+import type { AnalysisResult, AppSwitchEvent, BubbleState, Settings, SuggestedAction } from "./types";
 
 export default function BubbleApp() {
+  const [state, setState] = useState<BubbleState>("ambient");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [opacity, setOpacity] = useState(0.85);
-  const [visible, setVisible] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [analysisStage, setAnalysisStage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [appInfo, setAppInfo] = useState({ name: "", title: "" });
   const [actionDone, setActionDone] = useState(false);
   const { executing, execute } = useActions();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
+  const prevState = useRef<BubbleState>("ambient");
 
-  // Dynamic window resize
-  const { bubbleRef, contentRef } = useWindowAutoResize();
+  // Dynamic window resize based on state
+  const { bubbleRef, contentRef } = useWindowAutoResize(state);
 
+  // Register global shortcuts
   useEffect(() => {
-    // Load opacity setting
+    const registerShortcuts = async () => {
+      try {
+        await register("CmdOrCtrl+Shift+Y", (event) => {
+          if (event.state === "Released") return;
+          setState((s) => (s === "ambient" ? "active" : "ambient"));
+        });
+      } catch (e) {
+        console.warn("Failed to register toggle shortcut:", e);
+      }
+
+      try {
+        await register("CmdOrCtrl+Shift+R", (event) => {
+          if (event.state === "Released") return;
+          triggerAnalysis();
+        });
+      } catch (e) {
+        console.warn("Failed to register analyze shortcut:", e);
+      }
+    };
+    registerShortcuts();
+  }, []);
+
+  // Load settings + cached result on mount
+  useEffect(() => {
     invoke<Settings>("get_settings").then((s) => {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
     });
 
-    // Load cached analysis result
     invoke<AnalysisResult | null>("get_last_analysis").then((cached) => {
       if (cached) {
         setResult(cached);
-        setVisible(true);
       }
     });
+  }, []);
 
-    const unlistenSwitch = listen("app-switched", () => {
-      setRefreshing(true);
+  // Event listeners
+  useEffect(() => {
+    const unlistenSwitch = listen<AppSwitchEvent>("app-switched", (event) => {
+      setAppInfo({
+        name: event.payload.app_name,
+        title: "",
+      });
+      // Auto-analysis is handled by Rust; show working state
+      setState((s) => {
+        if (s === "working") return s;
+        return "working";
+      });
       setAnalysisStage(null);
+      setError(null);
     });
 
     const unlistenProgress = listen<string>("analysis-progress", (event) => {
       setAnalysisStage(event.payload);
     });
 
-    const unlistenAnalysis = listen<AnalysisResult>(
-      "analysis-complete",
-      (event) => {
-        setResult(event.payload);
-        setVisible(true);
-        setRefreshing(false);
-        setAnalysisStage(null);
-      }
-    );
+    const unlistenAnalysis = listen<AnalysisResult>("analysis-complete", (event) => {
+      setResult(event.payload);
+      setState("done");
+      setAnalysisStage(null);
+      setError(null);
+      startDismissTimer();
+    });
 
-    const unlistenOpacity = listen<number>(
-      "bubble-opacity-changed",
-      (event) => {
-        setOpacity(event.payload);
-      }
-    );
+    const unlistenOpacity = listen<number>("bubble-opacity-changed", (event) => {
+      setOpacity(event.payload);
+    });
 
     return () => {
-      [
-        unlistenSwitch,
-        unlistenProgress,
-        unlistenAnalysis,
-        unlistenOpacity,
-      ].forEach((u) => u.then((fn) => fn()));
+      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenOpacity].forEach((u) =>
+        u.then((fn) => fn())
+      );
     };
   }, []);
+
+  // Focus input when entering active state
+  useEffect(() => {
+    if (state === "active") {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+    prevState.current = state;
+  }, [state]);
+
+  // Global keyboard handler for Esc
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && state !== "ambient") {
+        setState("ambient");
+        clearDismissTimer();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state]);
+
+  const triggerAnalysis = () => {
+    setState("working");
+    setAnalysisStage(null);
+    setError(null);
+    clearDismissTimer();
+    invoke("analyze_screen").catch((e) => {
+      setError(String(e));
+      setState("active");
+    });
+  };
+
+  const handleSubmit = () => {
+    // Phase 1.3 will wire this to intent pipeline
+    triggerAnalysis();
+  };
 
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
@@ -74,81 +141,158 @@ export default function BubbleApp() {
     setTimeout(() => setActionDone(false), 1200);
   };
 
+  const startDismissTimer = () => {
+    clearDismissTimer();
+    dismissTimer.current = setTimeout(() => {
+      setState("ambient");
+    }, 15000);
+  };
+
+  const clearDismissTimer = () => {
+    if (dismissTimer.current) {
+      clearTimeout(dismissTimer.current);
+      dismissTimer.current = undefined;
+    }
+  };
+
+  // --- Render ---
+
+  if (state === "ambient") {
+    return (
+      <div
+        className="w-12 h-12 flex items-center justify-center cursor-pointer"
+        onClick={() => setState("active")}
+        title="YoYo"
+      >
+        <div
+          className="dot-breathing w-3 h-3 rounded-full bg-violet-500
+            shadow-[0_0_12px_rgba(139,92,246,0.6)]"
+        />
+      </div>
+    );
+  }
+
+  // Expanded states share the same glass container
+  const animClass = prevState.current === "ambient" ? "bubble-expand" : "";
+
   return (
-    <div
-      className={`bubble-container ${visible ? "bubble-enter" : "bubble-exit"}`}
-      style={{ opacity }}
-    >
+    <div className={animClass} style={{ opacity }}>
       <div
         ref={bubbleRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]
-        shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
-        text-white select-none overflow-hidden flex flex-col max-h-screen"
+          shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]
+          text-white select-none overflow-hidden flex flex-col max-h-screen"
       >
-        {/* Header — pinned top */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            {refreshing ? (
-              <span className="w-2 h-2 border border-zinc-400 border-t-transparent rounded-full animate-spin" />
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            {state === "working" ? (
+              <span className="w-2 h-2 border border-violet-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
             ) : (
-              <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+              <div className="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_6px_rgba(139,92,246,0.5)] flex-shrink-0" />
             )}
-            <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-              {refreshing && analysisStage ? analysisStage : "YoYo"}
+            <span className="text-[11px] text-zinc-400 truncate">
+              {state === "working" && analysisStage
+                ? analysisStage
+                : appInfo.name || "YoYo"}
             </span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {state === "working" && (
+              <button
+                onClick={() => setState("ambient")}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+            {state === "done" && (
+              <button
+                onClick={() => setState("ambient")}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Scrollable content area */}
+        {/* Content */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div ref={contentRef}>
-            {/* Context (from analysis) */}
-            {result && (
-              <div className="px-4 pb-2">
-                <p className="text-[13px] text-zinc-300 leading-snug">
-                  {result.context}
+            {/* Error message */}
+            {error && state === "active" && (
+              <div className="px-3 pb-2">
+                <p className="text-[12px] text-red-400 bg-red-950/30 rounded px-2 py-1.5">
+                  {error}
                 </p>
               </div>
             )}
 
-            {/* Separator */}
-            {result && (
-              <div className="mx-4 border-t border-white/[0.06]" />
+            {/* Active state: text input */}
+            {state === "active" && (
+              <div className="px-3 pb-3">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  placeholder="Ask YoYo anything..."
+                  className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2
+                    text-[13px] text-white placeholder-zinc-500 outline-none
+                    focus:border-violet-500/50 transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSubmit();
+                    if (e.key === "Escape") setState("ambient");
+                  }}
+                />
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[10px] text-zinc-600">
+                    Enter to analyze
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
+                    Esc
+                  </kbd>
+                </div>
+              </div>
             )}
 
-            {/* Actions or status overlay */}
-            {executing || actionDone ? (
-              <div className="px-4 py-6 flex flex-col items-center gap-2">
-                {actionDone ? (
-                  <>
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      className="w-6 h-6 text-emerald-400"
-                    >
-                      <path
-                        d="M5 13l4 4L19 7"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <span className="text-[12px] text-zinc-400">Done</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-[12px] text-zinc-400">
-                      Processing...
-                    </span>
-                  </>
-                )}
+            {/* Working state */}
+            {state === "working" && (
+              <div className="px-3 pb-3 pt-1">
+                <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+                  <span className="w-1 h-1 rounded-full bg-violet-400/50 animate-pulse" />
+                  <span>{analysisStage || "Processing..."}</span>
+                </div>
               </div>
-            ) : (
+            )}
+
+            {/* Done state: analysis result */}
+            {state === "done" && result && (
               <>
-                {/* Action buttons */}
-                {result && (
+                <div className="px-3 pb-2">
+                  <p className="text-[13px] text-zinc-300 leading-snug">
+                    {result.context}
+                  </p>
+                </div>
+
+                <div className="mx-3 border-t border-white/[0.06]" />
+
+                {executing || actionDone ? (
+                  <div className="px-3 py-4 flex flex-col items-center gap-2">
+                    {actionDone ? (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-violet-400">
+                          <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span className="text-[11px] text-zinc-400">Done</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-[11px] text-zinc-400">Processing...</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
                   <ActionButtons
                     actions={result.actions}
                     executing={executing}
@@ -161,17 +305,19 @@ export default function BubbleApp() {
           </div>
         </div>
 
-        {/* Footer — pinned bottom */}
-        <div className="flex-shrink-0">
-          <div className="px-4 py-2 flex items-center border-t border-white/[0.06]">
-            <span className="text-[10px] text-zinc-600">
-              <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
-                Cmd+Shift+R
-              </kbd>{" "}
-              refresh
-            </span>
+        {/* Footer — only in done state */}
+        {state === "done" && (
+          <div className="flex-shrink-0">
+            <div className="px-3 py-1.5 flex items-center border-t border-white/[0.06]">
+              <span className="text-[10px] text-zinc-600">
+                <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
+                  Cmd+Shift+R
+                </kbd>{" "}
+                refresh
+              </span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

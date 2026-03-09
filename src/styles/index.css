@@ -31,27 +31,35 @@ body {
   background: #71717a;
 }
 
-/* Bubble entrance/exit animations */
-.bubble-container {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+/* Breathing dot animation (ambient state) */
+@keyframes dotBreathe {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
 }
 
-.bubble-enter {
-  animation: bubbleSlideIn 0.25s ease-out forwards;
+.dot-breathing {
+  animation: dotBreathe 3s ease-in-out infinite;
 }
 
-.bubble-exit {
-  opacity: 0;
-  transform: translateY(-8px) scale(0.97);
-}
-
-@keyframes bubbleSlideIn {
+/* State transition: ambient → expanded */
+@keyframes expandFromDot {
   from {
     opacity: 0;
-    transform: translateY(-12px) scale(0.95);
+    transform: scale(0.3) translateX(60px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scale(1) translateX(0);
   }
+}
+
+.bubble-expand {
+  animation: expandFromDot 0.25s ease-out forwards;
+}
+
+/* State transition: expanded → ambient */
+.bubble-collapse {
+  opacity: 0;
+  transform: scale(0.3) translateX(60px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }

@@ -22,6 +22,7 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: vi.fn(() => ({
     label: "bubble",
     setSize: vi.fn(() => Promise.resolve()),
+    setPosition: vi.fn(() => Promise.resolve()),
     isVisible: vi.fn(() => Promise.resolve(false)),
     show: vi.fn(() => Promise.resolve()),
     hide: vi.fn(() => Promise.resolve()),
@@ -36,6 +37,14 @@ vi.mock("@tauri-apps/api/dpi", () => ({
     constructor(w: number, h: number) {
       this.width = w;
       this.height = h;
+    }
+  },
+  LogicalPosition: class LogicalPosition {
+    x: number;
+    y: number;
+    constructor(x: number, y: number) {
+      this.x = x;
+      this.y = y;
     }
   },
 }));

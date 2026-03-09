@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default permissions for YoYo",
-  "windows": ["main", "bubble", "speech-bubble"],
+  "windows": ["main", "bubble"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -11,6 +11,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-is-visible",
     "core:window:allow-set-size",
+    "core:window:allow-set-position",
     "positioner:default",
     "positioner:allow-move-window",
     "global-shortcut:default",

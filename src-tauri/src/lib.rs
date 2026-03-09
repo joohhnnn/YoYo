@@ -61,28 +61,24 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            // Pre-create speech-bubble window (hidden) so JS event listener is ready
-            let _ = WebviewWindowBuilder::new(
-                app,
-                "speech-bubble",
-                WebviewUrl::App("index.html".into()),
-            )
-            .title("YoYo Speech")
-            .inner_size(280.0, 120.0)
-            .resizable(false)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .visible(false)
-            .skip_taskbar(true)
-            .focused(false)
-            .build();
+            // Pre-create bubble window (always running, starts in ambient dot state)
+            let bubble =
+                WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
+                    .title("YoYo")
+                    .inner_size(48.0, 48.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .always_on_top(true)
+                    .visible_on_all_workspaces(true)
+                    .visible(true)
+                    .skip_taskbar(true)
+                    .focused(false)
+                    .build()
+                    .expect("Failed to create bubble window");
 
-            // Listen for speech-bubble events to show the speech bubble window
-            let app_for_bubble_event = app.handle().clone();
-            app.listen("speech-bubble", move |_event| {
-                show_speech_bubble(&app_for_bubble_event);
-            });
+            // Position bubble at top-right
+            position_bubble_top_right(&bubble);
 
             // Listen for app-switch events and auto-analyze from Rust side.
             // Uses debounce counter: only the latest switch triggers analysis after settling.
@@ -169,12 +165,11 @@ pub fn run() {
                                 .last_analysis_time
                                 .store(chrono_millis(), Ordering::Relaxed);
 
-                            // Cache + broadcast + show bubble
+                            // Cache + broadcast (bubble is always visible, React handles state)
                             if let Ok(mut cache) = state.last_analysis.lock() {
                                 *cache = Some(result.clone());
                             }
                             let _ = app.emit("analysis-complete", &result);
-                            show_bubble(&app);
 
                             // Record activity to observation log
                             let app_name = state
@@ -214,7 +209,7 @@ pub fn run() {
             if let TrayIconEvent::Click { button_state, .. } = event {
                 if matches!(button_state, tauri::tray::MouseButtonState::Down) {
                     let app_handle = app.app_handle().clone();
-                    toggle_panel(&app_handle);
+                    toggle_settings(&app_handle);
                 }
             }
         })
@@ -244,7 +239,8 @@ fn chrono_millis() -> i64 {
         .as_millis() as i64
 }
 
-fn toggle_panel(app: &tauri::AppHandle) {
+/// Toggle the settings window (tray icon click).
+fn toggle_settings(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
@@ -254,9 +250,8 @@ fn toggle_panel(app: &tauri::AppHandle) {
             let _ = window.set_focus();
         }
     } else {
-        // Create the panel window on first toggle
         let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-            .title("YoYo")
+            .title("YoYo Settings")
             .inner_size(320.0, 400.0)
             .resizable(false)
             .decorations(false)
@@ -264,7 +259,7 @@ fn toggle_panel(app: &tauri::AppHandle) {
             .visible(false)
             .skip_taskbar(true)
             .build()
-            .expect("Failed to create panel window");
+            .expect("Failed to create settings window");
 
         let _ = window.move_window(Position::TrayBottomCenter);
         let _ = window.show();
@@ -272,86 +267,19 @@ fn toggle_panel(app: &tauri::AppHandle) {
     }
 }
 
-/// Create or show the floating action bubble at top-right of screen.
-/// Does NOT steal focus — the user can keep typing.
-pub fn show_bubble(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("bubble") {
-        position_bubble_top_right(&window);
-        let _ = window.show();
-    } else {
-        let window = WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
-            .title("YoYo Bubble")
-            .inner_size(340.0, 200.0)
-            .resizable(false)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .visible_on_all_workspaces(true)
-            .visible(false)
-            .skip_taskbar(true)
-            .focused(false)
-            .build()
-            .expect("Failed to create bubble window");
-
-        position_bubble_top_right(&window);
-        let _ = window.show();
-    }
+/// Bubble is always visible — this is now a no-op.
+/// Kept for backward compatibility with analyze_screen command.
+pub fn show_bubble(_app: &tauri::AppHandle) {
+    // Bubble is pre-created and always visible.
+    // State transitions are handled by React via events.
 }
 
 fn position_bubble_top_right(window: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = window.current_monitor() {
         let size = monitor.size();
         let scale = monitor.scale_factor();
-        let x = (size.width as f64 / scale) - 360.0;
+        let x = (size.width as f64 / scale) - 68.0; // 48px dot + 20px margin
         let y = 40.0; // Below menu bar
-        let _ = window.set_position(LogicalPosition::new(x, y));
-    }
-}
-
-/// Create or show the speech bubble window next to the BubbleApp.
-fn show_speech_bubble(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("speech-bubble") {
-        position_speech_bubble(&window, app);
-        let _ = window.show();
-    } else {
-        match WebviewWindowBuilder::new(app, "speech-bubble", WebviewUrl::App("index.html".into()))
-            .title("YoYo Speech")
-            .inner_size(280.0, 120.0)
-            .resizable(false)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .visible(false)
-            .skip_taskbar(true)
-            .focused(false)
-            .build()
-        {
-            Ok(window) => {
-                position_speech_bubble(&window, app);
-                let _ = window.show();
-            }
-            Err(e) => eprintln!("Failed to create speech bubble window: {}", e),
-        }
-    }
-}
-
-fn position_speech_bubble(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
-    // Position to the left of the BubbleApp
-    if let Some(bubble) = app.get_webview_window("bubble") {
-        if let Ok(pos) = bubble.outer_position() {
-            let scale = bubble.scale_factor().unwrap_or(1.0);
-            let x = (pos.x as f64 / scale) - 290.0;
-            let y = (pos.y as f64 / scale) + 40.0;
-            let _ = window.set_position(LogicalPosition::new(x, y));
-            return;
-        }
-    }
-    // Fallback: top-right minus offset
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let x = (size.width as f64 / scale) - 650.0;
-        let y = 80.0;
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
 }

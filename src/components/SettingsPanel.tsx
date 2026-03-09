@@ -152,7 +152,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   onClick={() => update({ ai_mode: mode })}
                   className={`flex-1 text-[10px] py-1 rounded transition-colors ${
                     settings.ai_mode === mode
-                      ? "bg-blue-600 text-white"
+                      ? "bg-violet-600 text-white"
                       : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                   }`}
                 >
@@ -175,7 +175,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 placeholder="sk-ant-..."
                 className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1
                   text-[11px] text-white placeholder-zinc-600 outline-none
-                  focus:border-blue-500/50"
+                  focus:border-violet-500/50"
               />
             </SettingRow>
           )}
@@ -189,7 +189,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   onClick={() => update({ model: opt.value })}
                   className={`flex-1 text-[10px] py-1 rounded transition-colors ${
                     settings.model === opt.value
-                      ? "bg-blue-600 text-white"
+                      ? "bg-violet-600 text-white"
                       : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                   }`}
                 >
@@ -212,7 +212,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   onClick={() => update({ language: lang })}
                   className={`flex-1 text-[10px] py-1 rounded transition-colors ${
                     settings.language === lang
-                      ? "bg-blue-600 text-white"
+                      ? "bg-violet-600 text-white"
                       : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                   }`}
                 >
@@ -231,7 +231,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <button
                 onClick={() => update({ auto_analyze: !settings.auto_analyze })}
                 className={`w-8 h-[18px] rounded-full transition-colors relative ${
-                  settings.auto_analyze ? "bg-blue-600" : "bg-zinc-700"
+                  settings.auto_analyze ? "bg-violet-600" : "bg-zinc-700"
                 }`}
               >
                 <span
@@ -308,7 +308,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             onChange={(e) => handleEditorChange(e.target.value, tab)}
             className="flex-1 mx-3 mb-2 p-2 text-[11px] leading-relaxed bg-zinc-800 border border-zinc-700
               rounded text-zinc-200 placeholder-zinc-600 outline-none resize-none
-              focus:border-blue-500/50 font-mono"
+              focus:border-violet-500/50 font-mono"
             placeholder={tab === "profile" ? "# About Me\n..." : "# Current Context\n..."}
           />
         </div>

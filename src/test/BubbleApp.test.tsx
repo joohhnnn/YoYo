@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import BubbleApp from "../BubbleApp";
 import type { AnalysisResult } from "../types";
 
@@ -27,101 +26,212 @@ const mockSettings = {
   language: "zh",
   auto_analyze: true,
   analysis_depth: "normal" as const,
+  app_blacklist: [],
 };
 
 // --- Helpers ---
 
-/**
- * Configure invoke mock to return specific data based on command name.
- */
-function setupInvokeMock(overrides: {
-  result?: AnalysisResult | null;
-} = {}) {
+function setupInvokeMock(overrides: { result?: AnalysisResult | null } = {}) {
   const { result = null } = overrides;
-
   (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
     switch (cmd) {
       case "get_settings": return Promise.resolve(mockSettings);
       case "get_last_analysis": return Promise.resolve(result);
+      case "analyze_screen": return Promise.resolve(result ?? mockResult);
       default: return Promise.resolve(null);
     }
   });
 }
 
-/**
- * Helper to flush all pending promises and state updates.
- */
 async function flush() {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));
   });
 }
 
-/**
- * Get the setSize mock to check window resize calls.
- */
-function getSetSizeMock() {
-  return (getCurrentWebviewWindow() as any).setSize as ReturnType<typeof vi.fn>;
-}
-
 // --- Tests ---
 
-describe("BubbleApp", () => {
+describe("BubbleApp State Machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default listen returns unlisten noop
     (listen as ReturnType<typeof vi.fn>).mockImplementation(() =>
       Promise.resolve(() => {})
     );
   });
 
-  describe("State 1: Idle — no analysis result", () => {
-    it("renders header and footer", async () => {
+  describe("Ambient state (default)", () => {
+    it("renders breathing dot", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      const dot = container.querySelector(".dot-breathing");
+      expect(dot).toBeTruthy();
+      expect(dot?.className).toContain("bg-violet-500");
+    });
+
+    it("dot container is 48x48", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      const dotContainer = container.querySelector(".w-12");
+      expect(dotContainer).toBeTruthy();
+      expect(dotContainer?.className).toContain("h-12");
+    });
+
+    it("does NOT render input field or actions", async () => {
       setupInvokeMock();
       render(<BubbleApp />);
       await flush();
 
-      // Header text
-      expect(screen.getByText("YoYo")).toBeInTheDocument();
-
-      // Footer shortcut hint
-      expect(screen.getByText("refresh")).toBeInTheDocument();
-
-      // Should NOT show session-specific UI
-      expect(screen.queryByText("End")).not.toBeInTheDocument();
-      expect(screen.queryByPlaceholderText("Ask YoYo...")).not.toBeInTheDocument();
-      expect(screen.queryByPlaceholderText("Start a session...")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Ask YoYo anything...")).not.toBeInTheDocument();
+      expect(screen.queryByText("Open React Docs")).not.toBeInTheDocument();
+      expect(screen.queryByText("refresh")).not.toBeInTheDocument();
     });
   });
 
-  describe("State 2: With analysis result", () => {
-    it("renders context and action buttons", async () => {
-      setupInvokeMock({ result: mockResult });
+  describe("Active state", () => {
+    it("clicking dot transitions to active with input field", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      expect(screen.getByPlaceholderText("Ask YoYo anything...")).toBeInTheDocument();
+      expect(screen.getByText("Enter to analyze")).toBeInTheDocument();
+    });
+
+    it("shows glass container with violet header dot", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      const glass = container.querySelector(".backdrop-blur-xl");
+      expect(glass).toBeTruthy();
+
+      const headerDot = container.querySelector(".bg-violet-400");
+      expect(headerDot).toBeTruthy();
+    });
+
+    it("Esc returns to ambient", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Press Esc
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+
+      // Should be back to ambient
+      const dot = container.querySelector(".dot-breathing");
+      expect(dot).toBeTruthy();
+    });
+  });
+
+  describe("Working state", () => {
+    it("shows cancel button when analyzing", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Enter → trigger analysis → working
+      const input = screen.getByPlaceholderText("Ask YoYo anything...");
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      expect(screen.getByText("Cancel")).toBeInTheDocument();
+    });
+  });
+
+  describe("Done state", () => {
+    it("shows analysis result with context and actions", async () => {
+      setupInvokeMock();
+      let analysisCallback: ((event: { payload: AnalysisResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "analysis-complete") analysisCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
       render(<BubbleApp />);
       await flush();
 
-      // Context text
-      expect(screen.getByText(mockResult.context)).toBeInTheDocument();
+      await act(async () => {
+        analysisCallback?.({ payload: mockResult });
+      });
 
-      // Action buttons
+      expect(screen.getByText(mockResult.context)).toBeInTheDocument();
       expect(screen.getByText("Open React Docs")).toBeInTheDocument();
       expect(screen.getByText("Copy useEffect example")).toBeInTheDocument();
-
-      // Footer
+      expect(screen.getByText("Dismiss")).toBeInTheDocument();
       expect(screen.getByText("refresh")).toBeInTheDocument();
+    });
 
-      // No session UI
-      expect(screen.queryByPlaceholderText("Ask YoYo...")).not.toBeInTheDocument();
-      expect(screen.queryByPlaceholderText("Start a session...")).not.toBeInTheDocument();
-      expect(screen.queryByText("End")).not.toBeInTheDocument();
+    it("dismiss returns to ambient", async () => {
+      setupInvokeMock();
+      let analysisCallback: ((event: { payload: AnalysisResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "analysis-complete") analysisCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        analysisCallback?.({ payload: mockResult });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Dismiss"));
+      });
+
+      const dot = container.querySelector(".dot-breathing");
+      expect(dot).toBeTruthy();
     });
   });
 
-  describe("Layout: flex container with scroll", () => {
-    it("inner container uses flex-col with overflow-hidden and max-h-screen", async () => {
-      setupInvokeMock({ result: mockResult });
+  describe("Layout", () => {
+    it("expanded states use glass container with flex layout", async () => {
+      setupInvokeMock();
+      let analysisCallback: ((event: { payload: AnalysisResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "analysis-complete") analysisCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
       const { container } = render(<BubbleApp />);
       await flush();
+
+      await act(async () => {
+        analysisCallback?.({ payload: mockResult });
+      });
 
       const innerDiv = container.querySelector(".backdrop-blur-xl");
       expect(innerDiv).toBeTruthy();
@@ -129,60 +239,6 @@ describe("BubbleApp", () => {
       expect(innerDiv?.className).toContain("flex-col");
       expect(innerDiv?.className).toContain("overflow-hidden");
       expect(innerDiv?.className).toContain("max-h-screen");
-    });
-
-    it("content area uses flex-1 + min-h-0 for scrollable overflow", async () => {
-      setupInvokeMock({ result: mockResult });
-      const { container } = render(<BubbleApp />);
-      await flush();
-
-      const innerDiv = container.querySelector(".backdrop-blur-xl");
-      const contentDiv = innerDiv!.querySelectorAll(":scope > div")[1]; // second child = content area
-      expect(contentDiv.className).toContain("flex-1");
-      expect(contentDiv.className).toContain("min-h-0");
-      expect(contentDiv.className).toContain("overflow-y-auto");
-    });
-
-    it("all sections are visible in DOM (header, content, footer)", async () => {
-      setupInvokeMock({ result: mockResult });
-      const { container } = render(<BubbleApp />);
-      await flush();
-
-      // Header, content, and footer should all be present
-      const innerDiv = container.querySelector(".backdrop-blur-xl");
-      const children = innerDiv!.querySelectorAll(":scope > div");
-      expect(children.length).toBe(3); // header, content, bottom
-    });
-  });
-
-  describe("Analysis event handling", () => {
-    it("loads cached analysis result on mount and becomes visible", async () => {
-      setupInvokeMock({ result: mockResult });
-      render(<BubbleApp />);
-      await flush();
-
-      expect(screen.getByText(mockResult.context)).toBeInTheDocument();
-    });
-
-    it("shows refreshing spinner when app-switched event fires", async () => {
-      setupInvokeMock();
-      let switchCallback: (() => void) | null = null;
-
-      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
-        if (event === "app-switched") switchCallback = cb;
-        return Promise.resolve(() => {});
-      });
-
-      render(<BubbleApp />);
-      await flush();
-
-      // Trigger app-switched
-      await act(async () => {
-        switchCallback?.();
-      });
-
-      // Header dot changes to spinner — just verify no crash
-      expect(screen.getAllByText("YoYo").length).toBeGreaterThanOrEqual(1);
     });
   });
 });

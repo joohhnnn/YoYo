@@ -44,8 +44,8 @@ export function StatusIndicator({ loading, error }: StatusIndicatorProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-400 bg-blue-950/30 rounded">
-        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-violet-400 bg-violet-950/30 rounded">
+        <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
         Analyzing screen...
       </div>
     );

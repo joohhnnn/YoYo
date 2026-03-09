@@ -1,3 +1,5 @@
+export type BubbleState = "ambient" | "active" | "working" | "done";
+
 export interface ActionParams {
   url?: string;
   app?: string;
@@ -61,7 +63,3 @@ export interface ActivityRecord {
   updated_at: string;
 }
 
-export interface SpeechBubbleEvent {
-  text: string;
-  auto_dismiss_secs: number;
-}
