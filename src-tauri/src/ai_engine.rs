@@ -1,3 +1,4 @@
+use crate::screen_context::ScreenContext;
 use crate::user_data::{self, ActivityRecord};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -101,16 +102,14 @@ fn max_tokens_for_depth(depth: &str) -> u32 {
     }
 }
 
-/// Build the full prompt with activity history for observation mode.
-pub fn build_full_prompt_with_history(
+/// Build the full prompt with screen context and activity history.
+pub fn build_full_prompt(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
-    analysis_depth: &str,
-    ocr_text: Option<&str>,
+    ctx: &ScreenContext,
     is_focus_crop: bool,
-    app_name: Option<&str>,
-    open_windows: Option<&str>,
+    has_screenshot: bool,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -163,88 +162,67 @@ pub fn build_full_prompt_with_history(
         ));
     }
 
-    // Inject OCR-extracted screen text
-    if let Some(text) = ocr_text {
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            parts.push(format!("[Screen Text (OCR)]\n{}", trimmed));
-        }
+    // Screen context (app info, selected text, URL, AX/OCR text, open windows)
+    let context_block = ctx.format_for_prompt();
+    if !context_block.is_empty() {
+        parts.push(context_block);
     }
 
-    // Inject open windows list so AI knows what apps are available
-    if let Some(windows) = open_windows {
-        if !windows.is_empty() {
-            parts.push(format!(
-                "[Open Windows]\n\
-                The following windows are currently open on the user's screen:\n\
-                {}\n\n\
-                When suggesting \"open_app\" actions, use the exact bundle_id from above as the \"app\" parameter.\n\
-                Only suggest switching to apps that are actually listed here.",
-                windows
-            ));
+    // Screenshot info
+    if has_screenshot {
+        if is_focus_crop {
+            parts.push(
+                "[Screenshot]\n\
+                A screenshot of the area around the user's cursor is attached (800x600 crop).\n\
+                If important content is cut off at the edges, set \"need_full_context\": true."
+                    .to_string(),
+            );
+        } else {
+            parts.push("[Screenshot]\nA full-screen screenshot is attached.".to_string());
         }
-    }
-
-    // Focus crop context — tell AI this is a cursor-area crop, not full screen
-    if is_focus_crop {
-        let app_info = app_name
-            .map(|n| format!("Current app: {}", n))
-            .unwrap_or_default();
-        parts.push(format!(
-            "[Focus Area]\n\
-            This screenshot/text is cropped around the user's cursor position (approximate gaze area), \
-            covering approximately 800x600 points of the screen.\n\
-            {}\n\n\
-            If you see content clearly cut off at the edges that would be important for your analysis, \
-            set \"need_full_context\": true in your JSON response. Only do this when the missing content \
-            would significantly change your understanding of what the user is doing.",
-            app_info
-        ));
+    } else {
+        parts.push(
+            "[Note] No screenshot attached. Analyze based on the text context above.".to_string(),
+        );
     }
 
     // Depth-specific instruction
-    parts.push(depth_instruction(analysis_depth).to_string());
+    parts.push(depth_instruction(&ctx.depth).to_string());
 
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
     parts.join("\n\n")
 }
 
-/// Analyze a screenshot using Claude CLI.
-/// When `send_image` is false, only OCR text is sent (no screenshot reference).
+/// Analyze screen using Claude CLI.
+/// When `screenshot_path` is None, no image is sent.
 pub async fn analyze_with_cli(
-    screenshot_path: &Path,
+    screenshot_path: Option<&Path>,
     model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
-    analysis_depth: &str,
-    ocr_text: Option<&str>,
-    send_image: bool,
+    ctx: &ScreenContext,
     is_focus_crop: bool,
-    app_name: Option<&str>,
-    open_windows: Option<&str>,
 ) -> Result<AnalysisResult, String> {
-    let full_prompt = build_full_prompt_with_history(
+    let full_prompt = build_full_prompt(
         language,
         recent_activities,
         main_quest,
-        analysis_depth,
-        ocr_text,
+        ctx,
         is_focus_crop,
-        app_name,
-        open_windows,
+        screenshot_path.is_some(),
     );
 
-    let prompt = if send_image {
-        let path_str = screenshot_path.to_str().ok_or("Invalid screenshot path")?;
+    let prompt = if let Some(path) = screenshot_path {
+        let path_str = path.to_str().ok_or("Invalid screenshot path")?;
         format!(
             "Read the screenshot image at '{}' and analyze it.\n\n{}",
             path_str, full_prompt
         )
     } else {
         format!(
-            "Analyze the user's current screen based on the OCR text provided.\n\n{}",
+            "Analyze the user's current screen based on the context provided.\n\n{}",
             full_prompt
         )
     };
@@ -275,36 +253,30 @@ pub async fn analyze_with_cli(
     parse_ai_response(&response)
 }
 
-/// Analyze a screenshot using Claude API.
-/// When `send_image` is false, only OCR text is sent (no base64 image), saving tokens.
+/// Analyze screen using Claude API.
+/// When `screenshot_path` is None, no image is sent, saving tokens.
 pub async fn analyze_with_api(
-    screenshot_path: &Path,
+    screenshot_path: Option<&Path>,
     api_key: &str,
     model: &str,
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
-    analysis_depth: &str,
-    ocr_text: Option<&str>,
-    send_image: bool,
+    ctx: &ScreenContext,
     is_focus_crop: bool,
-    app_name: Option<&str>,
-    open_windows: Option<&str>,
 ) -> Result<AnalysisResult, String> {
-    let prompt_text = build_full_prompt_with_history(
+    let prompt_text = build_full_prompt(
         language,
         recent_activities,
         main_quest,
-        analysis_depth,
-        ocr_text,
+        ctx,
         is_focus_crop,
-        app_name,
-        open_windows,
+        screenshot_path.is_some(),
     );
 
-    let content = if send_image {
-        let image_data = std::fs::read(screenshot_path)
-            .map_err(|e| format!("Failed to read screenshot: {}", e))?;
+    let content = if let Some(path) = screenshot_path {
+        let image_data =
+            std::fs::read(path).map_err(|e| format!("Failed to read screenshot: {}", e))?;
         let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
         serde_json::json!([
             {
@@ -321,7 +293,6 @@ pub async fn analyze_with_api(
             }
         ])
     } else {
-        // Text-only mode: no image, just OCR text in the prompt
         serde_json::json!([
             {
                 "type": "text",
@@ -333,7 +304,7 @@ pub async fn analyze_with_api(
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": max_tokens_for_depth(analysis_depth),
+        "max_tokens": max_tokens_for_depth(&ctx.depth),
         "messages": [{
             "role": "user",
             "content": content

@@ -9,6 +9,10 @@ pub struct AccessibilityResult {
     pub node_count: usize,
     pub truncated: bool,
     pub error: Option<String>,
+    #[serde(default)]
+    pub selected_text: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// Extract text from the accessibility tree of the given process.

@@ -4,6 +4,7 @@ mod commands;
 mod focus_capture;
 mod frame_diff;
 mod ocr;
+mod screen_context;
 mod screenshot;
 mod user_data;
 mod window_list;
@@ -120,6 +121,20 @@ pub fn run() {
                     // Check if auto-analyze is enabled
                     if !commands::get_auto_analyze(&app) {
                         return;
+                    }
+
+                    // Check app blacklist before any analysis
+                    {
+                        let bundle_id = state
+                            .current_bundle_id
+                            .lock()
+                            .map(|b| b.clone())
+                            .unwrap_or_default();
+                        let data = commands::settings::load_data(&app);
+                        if screen_context::is_blacklisted(&bundle_id, &data.settings.app_blacklist)
+                        {
+                            return;
+                        }
                     }
 
                     // Quick screen change detection: take 2 frames 500ms apart.

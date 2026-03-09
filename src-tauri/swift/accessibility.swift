@@ -13,6 +13,8 @@ struct AXResult: Encodable {
     let node_count: Int
     let truncated: Bool
     let error: String?
+    let selected_text: String?
+    let url: String?
 }
 
 // Privacy: password manager bundle IDs to skip entirely
@@ -145,11 +147,41 @@ func walkTree(_ element: AXUIElement, depth: Int) {
     }
 }
 
+// MARK: - Browser URL Extraction
+
+let browserBundleIds: Set<String> = [
+    "com.apple.Safari", "com.google.Chrome", "com.brave.Browser",
+    "org.mozilla.firefox", "company.thebrowser.Browser",
+    "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "com.operasoftware.Opera",
+]
+
+/// Walk toolbar children (max depth 5) looking for a URL in AXTextField/AXComboBox.
+func findURLInToolbar(_ element: AXUIElement, depth: Int = 0) -> String? {
+    if depth > 5 { return nil }
+    let role = getStringAttribute(element, kAXRoleAttribute as String) ?? ""
+    if role == "AXTextField" || role == "AXComboBox" {
+        if let value = getStringAttribute(element, kAXValueAttribute as String),
+           !value.isEmpty,
+           (value.hasPrefix("http://") || value.hasPrefix("https://") || value.contains("://")) {
+            return value
+        }
+        // Check role description for "address" (works across locales sometimes)
+        if let desc = getStringAttribute(element, "AXRoleDescription" as String),
+           desc.lowercased().contains("address") || desc.lowercased().contains("url") {
+            return getStringAttribute(element, kAXValueAttribute as String)
+        }
+    }
+    for child in getChildren(element) {
+        if let url = findURLInToolbar(child, depth: depth + 1) { return url }
+    }
+    return nil
+}
+
 // MARK: - Main
 
 guard CommandLine.arguments.count >= 2,
       let pid = Int32(CommandLine.arguments[1]) else {
-    let result = AXResult(text: "", app_name: "", window_title: "", node_count: 0, truncated: false, error: "Usage: yoyo-ax <pid>")
+    let result = AXResult(text: "", app_name: "", window_title: "", node_count: 0, truncated: false, error: "Usage: yoyo-ax <pid>", selected_text: nil, url: nil)
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(result), let json = String(data: data, encoding: .utf8) {
         print(json)
@@ -159,7 +191,7 @@ guard CommandLine.arguments.count >= 2,
 
 // Check accessibility permission
 if !AXIsProcessTrusted() {
-    let result = AXResult(text: "", app_name: "", window_title: "", node_count: 0, truncated: false, error: "accessibility_not_trusted")
+    let result = AXResult(text: "", app_name: "", window_title: "", node_count: 0, truncated: false, error: "accessibility_not_trusted", selected_text: nil, url: nil)
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(result), let json = String(data: data, encoding: .utf8) {
         print(json)
@@ -174,7 +206,7 @@ let bundleId = app?.bundleIdentifier ?? ""
 
 // Privacy: skip password managers
 if blockedBundleIds.contains(bundleId) {
-    let result = AXResult(text: "", app_name: appName, window_title: "", node_count: 0, truncated: false, error: "blocked_privacy")
+    let result = AXResult(text: "", app_name: appName, window_title: "", node_count: 0, truncated: false, error: "blocked_privacy", selected_text: nil, url: nil)
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(result), let json = String(data: data, encoding: .utf8) {
         print(json)
@@ -215,12 +247,39 @@ if let focused = getFocusedWindow(appElement) {
 // Privacy: check for sensitive window titles
 let titleLower = windowTitle.lowercased()
 if sensitiveKeywords.contains(where: { titleLower.contains($0) }) {
-    let result = AXResult(text: "", app_name: appName, window_title: windowTitle, node_count: 0, truncated: false, error: "blocked_privacy")
+    let result = AXResult(text: "", app_name: appName, window_title: windowTitle, node_count: 0, truncated: false, error: "blocked_privacy", selected_text: nil, url: nil)
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(result), let json = String(data: data, encoding: .utf8) {
         print(json)
     }
     exit(0)
+}
+
+// Extract selected text from focused element
+var selectedText: String? = nil
+var focusedValue: AnyObject?
+let focusedResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedValue)
+if focusedResult == .success {
+    let focusedEl = (focusedValue as! AXUIElement)
+    if let sel = getStringAttribute(focusedEl, kAXSelectedTextAttribute as String),
+       !sel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Cap at 4KB to avoid excessive data
+        let trimmed = sel.trimmingCharacters(in: .whitespacesAndNewlines)
+        selectedText = String(trimmed.prefix(4096))
+    }
+}
+
+// Extract browser URL
+var browserURL: String? = nil
+if browserBundleIds.contains(bundleId) {
+    // Safari: AXDocument attribute on window (returns URL directly)
+    if let doc = getStringAttribute(targetWindow, "AXDocument" as String) {
+        browserURL = doc
+    }
+    // Chromium/other browsers: find URL in toolbar children
+    if browserURL == nil {
+        browserURL = findURLInToolbar(targetWindow)
+    }
 }
 
 // Walk the accessibility tree
@@ -253,7 +312,9 @@ let result = AXResult(
     window_title: windowTitle,
     node_count: nodeCount,
     truncated: truncated,
-    error: nil
+    error: nil,
+    selected_text: selectedText,
+    url: browserURL
 )
 
 let encoder = JSONEncoder()
@@ -261,5 +322,5 @@ if let data = try? encoder.encode(result),
    let json = String(data: data, encoding: .utf8) {
     print(json)
 } else {
-    print("{\"text\":\"\",\"app_name\":\"\",\"window_title\":\"\",\"node_count\":0,\"truncated\":false,\"error\":\"json_encode_failed\"}")
+    print("{\"text\":\"\",\"app_name\":\"\",\"window_title\":\"\",\"node_count\":0,\"truncated\":false,\"error\":\"json_encode_failed\",\"selected_text\":null,\"url\":null}")
 }

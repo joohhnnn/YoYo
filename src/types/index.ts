@@ -39,6 +39,7 @@ export interface Settings {
   language: string;
   auto_analyze: boolean;
   analysis_depth: "casual" | "normal" | "deep";
+  app_blacklist: string[];
 }
 
 export interface AppSwitchEvent {

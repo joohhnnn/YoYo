@@ -21,6 +21,8 @@ pub struct Settings {
     pub auto_analyze: bool,
     #[serde(default = "default_analysis_depth")]
     pub analysis_depth: String, // "casual" | "normal" | "deep"
+    #[serde(default = "default_app_blacklist")]
+    pub app_blacklist: Vec<String>,
 }
 
 fn default_model() -> String {
@@ -43,6 +45,18 @@ fn default_analysis_depth() -> String {
     "normal".to_string()
 }
 
+fn default_app_blacklist() -> Vec<String> {
+    vec![
+        "com.1password.1password".to_string(),
+        "com.agilebits.onepassword7".to_string(),
+        "com.bitwarden.desktop".to_string(),
+        "org.keepassxc.keepassxc".to_string(),
+        "com.lastpass.LastPass".to_string(),
+        "com.dashlane.Dashlane".to_string(),
+        "com.apple.keychainaccess".to_string(),
+    ]
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -56,6 +70,7 @@ impl Default for Settings {
             language: "zh".to_string(),
             auto_analyze: true,
             analysis_depth: "normal".to_string(),
+            app_blacklist: default_app_blacklist(),
         }
     }
 }
