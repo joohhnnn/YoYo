@@ -3,7 +3,6 @@ mod ai_engine;
 mod commands;
 mod focus_capture;
 mod frame_diff;
-mod obsidian;
 mod ocr;
 mod screenshot;
 mod user_data;
@@ -11,7 +10,6 @@ mod window_list;
 mod window_monitor;
 
 use crate::ai_engine::AnalysisResult;
-use crate::commands::ChatMessage;
 use crate::window_monitor::AppSwitchEvent;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
@@ -30,13 +28,6 @@ pub struct AppState {
     pub current_app_name: Mutex<String>,
     pub current_bundle_id: Mutex<String>,
     pub current_app_pid: AtomicI64,
-    // Observation mode: count new activities since last reflection
-    pub activities_since_reflection: AtomicI64,
-    // Onboarding state
-    pub onboarding_active: Mutex<bool>,
-    pub onboarding_history: Mutex<Vec<ChatMessage>>,
-    // Session mode
-    pub active_session: Mutex<Option<user_data::Session>>,
 }
 
 pub fn run() {
@@ -52,10 +43,6 @@ pub fn run() {
             current_app_name: Mutex::new(String::new()),
             current_bundle_id: Mutex::new(String::new()),
             current_app_pid: AtomicI64::new(0),
-            activities_since_reflection: AtomicI64::new(0),
-            onboarding_active: Mutex::new(false),
-            onboarding_history: Mutex::new(Vec::new()),
-            active_session: Mutex::new(None),
         })
         .setup(|app| {
             // Start window monitor
@@ -71,29 +58,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            }
-
-            // Restore reflection counter from DB on startup
-            {
-                let state = app.state::<AppState>();
-                if let Ok(total) = user_data::get_total_activity_count() {
-                    if let Ok(Some(last_ref)) = user_data::get_latest_reflection() {
-                        let diff = total - last_ref.activity_count;
-                        state
-                            .activities_since_reflection
-                            .store(diff.max(0), Ordering::Relaxed);
-                    }
-                }
-            }
-
-            // Restore active session from DB on startup
-            {
-                let state = app.state::<AppState>();
-                if let Ok(Some(session)) = user_data::get_active_session_from_db() {
-                    if let Ok(mut active) = state.active_session.lock() {
-                        *active = Some(session);
-                    }
-                }
             }
 
             // Pre-create speech-bubble window (hidden) so JS event listener is ready
@@ -193,47 +157,6 @@ pub fn run() {
                             let _ = app.emit("analysis-complete", &result);
                             show_bubble(&app);
 
-                            // Record timeline entry if session is active
-                            let session_id = state
-                                .active_session
-                                .lock()
-                                .ok()
-                                .and_then(|a| a.as_ref().map(|s| s.id.clone()));
-                            if let Some(ref sid) = session_id {
-                                let ctx = &result.context;
-                                let sapp = state
-                                    .current_app_name
-                                    .lock()
-                                    .map(|n| n.clone())
-                                    .unwrap_or_default();
-                                let _ = user_data::add_timeline_entry(sid, ctx, &sapp);
-                                let _ = app.emit(
-                                    "session-timeline-update",
-                                    serde_json::json!({
-                                        "session_id": sid,
-                                        "context": ctx,
-                                        "app_name": sapp,
-                                    }),
-                                );
-
-                                // Drift detection
-                                if result.on_track == Some(false) {
-                                    if let Some(ref msg) = result.drift_message {
-                                        let _ = app.emit(
-                                            "session-drift",
-                                            serde_json::json!({ "message": msg }),
-                                        );
-                                        let _ = app.emit(
-                                            "speech-bubble",
-                                            serde_json::json!({
-                                                "text": msg,
-                                                "auto_dismiss_secs": 10
-                                            }),
-                                        );
-                                    }
-                                }
-                            }
-
                             // Record activity to observation log
                             let app_name = state
                                 .current_app_name
@@ -254,27 +177,7 @@ pub fn run() {
                                 &result.context,
                                 &actions_json,
                             ) {
-                                Ok(true) => {
-                                    // New distinct activity — check reflection trigger
-                                    let count = state
-                                        .activities_since_reflection
-                                        .fetch_add(1, Ordering::Relaxed)
-                                        + 1;
-                                    if count >= 30 {
-                                        state
-                                            .activities_since_reflection
-                                            .store(0, Ordering::Relaxed);
-                                        let app_for_reflect = app.clone();
-                                        tauri::async_runtime::spawn(async move {
-                                            if let Err(e) =
-                                                commands::trigger_reflection(&app_for_reflect).await
-                                            {
-                                                eprintln!("Reflection failed: {}", e);
-                                            }
-                                        });
-                                    }
-                                }
-                                Ok(false) => {} // Deduplicated, no action
+                                Ok(_) => {}
                                 Err(e) => eprintln!("Failed to record activity: {}", e),
                             }
                         }
@@ -309,20 +212,7 @@ pub fn run() {
             commands::get_context,
             commands::save_context,
             commands::get_last_analysis,
-            commands::check_needs_onboarding,
-            commands::start_onboarding,
-            commands::send_onboarding_message,
-            commands::finish_onboarding,
             commands::get_recent_activities,
-            commands::get_latest_reflection,
-            commands::detect_obsidian_vaults,
-            commands::validate_vault_path,
-            commands::start_session,
-            commands::end_session,
-            commands::get_active_session,
-            commands::get_session_history,
-            commands::get_session_timeline,
-            commands::send_session_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");
