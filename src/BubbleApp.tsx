@@ -5,7 +5,7 @@ import { register } from "@tauri-apps/plugin-global-shortcut";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
-import type { AnalysisResult, AppSwitchEvent, BubbleState, Settings, SuggestedAction } from "./types";
+import type { AnalysisResult, AppSwitchEvent, BubbleState, IntentResult, PlanStep, Settings, SuggestedAction } from "./types";
 
 export default function BubbleApp() {
   const [state, setState] = useState<BubbleState>("ambient");
@@ -15,6 +15,10 @@ export default function BubbleApp() {
   const [error, setError] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState({ name: "", title: "" });
   const [actionDone, setActionDone] = useState(false);
+  const [intentResult, setIntentResult] = useState<IntentResult | null>(null);
+  const [executingPlan, setExecutingPlan] = useState(false);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [inputValue, setInputValue] = useState("");
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -88,13 +92,24 @@ export default function BubbleApp() {
       startDismissTimer();
     });
 
+    const unlistenIntent = listen<IntentResult>("intent-complete", (event) => {
+      setIntentResult(event.payload);
+      setResult(null);
+      setState("done");
+      setAnalysisStage(null);
+      setError(null);
+      if (!event.payload.needs_confirmation) {
+        executePlan(event.payload.plan);
+      }
+    });
+
     const unlistenOpacity = listen<number>("bubble-opacity-changed", (event) => {
       setOpacity(event.payload);
     });
 
     return () => {
-      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenOpacity].forEach((u) =>
-        u.then((fn) => fn())
+      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenIntent, unlistenOpacity].forEach(
+        (u) => u.then((fn) => fn())
       );
     };
   }, []);
@@ -111,18 +126,27 @@ export default function BubbleApp() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && state !== "ambient") {
-        setState("ambient");
-        clearDismissTimer();
+        goAmbient();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [state]);
 
+  const goAmbient = () => {
+    setState("ambient");
+    setInputValue("");
+    setIntentResult(null);
+    setExecutingPlan(false);
+    setCurrentStep(-1);
+    clearDismissTimer();
+  };
+
   const triggerAnalysis = () => {
     setState("working");
     setAnalysisStage(null);
     setError(null);
+    setIntentResult(null);
     clearDismissTimer();
     invoke("analyze_screen").catch((e) => {
       setError(String(e));
@@ -130,9 +154,58 @@ export default function BubbleApp() {
     });
   };
 
+  const triggerIntent = (userInput: string) => {
+    setState("working");
+    setAnalysisStage("Understanding...");
+    setError(null);
+    setIntentResult(null);
+    clearDismissTimer();
+    invoke<IntentResult>("understand_intent", { userInput })
+      .then((res) => {
+        setIntentResult(res);
+        setResult(null);
+        setState("done");
+        setAnalysisStage(null);
+        if (!res.needs_confirmation) {
+          executePlan(res.plan);
+        }
+      })
+      .catch((e) => {
+        setError(String(e));
+        setState("active");
+      });
+  };
+
   const handleSubmit = () => {
-    // Phase 1.3 will wire this to intent pipeline
-    triggerAnalysis();
+    const text = inputValue.trim();
+    if (!text) {
+      triggerAnalysis();
+      return;
+    }
+    triggerIntent(text);
+  };
+
+  const executePlan = async (steps: PlanStep[]) => {
+    setExecutingPlan(true);
+    for (let i = 0; i < steps.length; i++) {
+      setCurrentStep(i);
+      try {
+        await invoke("execute_action", {
+          actionType: steps[i].action_type,
+          params: steps[i].params,
+        });
+      } catch (e) {
+        setError(`Step ${i + 1} failed: ${e}`);
+        setExecutingPlan(false);
+        setCurrentStep(-1);
+        return;
+      }
+    }
+    setExecutingPlan(false);
+    setCurrentStep(-1);
+    setActionDone(true);
+    setTimeout(() => setActionDone(false), 1200);
+    startDismissTimer();
   };
 
   const handleExecute = async (action: SuggestedAction) => {
@@ -144,7 +217,7 @@ export default function BubbleApp() {
   const startDismissTimer = () => {
     clearDismissTimer();
     dismissTimer.current = setTimeout(() => {
-      setState("ambient");
+      goAmbient();
     }, 15000);
   };
 
@@ -200,7 +273,7 @@ export default function BubbleApp() {
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {state === "working" && (
               <button
-                onClick={() => setState("ambient")}
+                onClick={goAmbient}
                 className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
               >
                 Cancel
@@ -208,7 +281,7 @@ export default function BubbleApp() {
             )}
             {state === "done" && (
               <button
-                onClick={() => setState("ambient")}
+                onClick={goAmbient}
                 className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
               >
                 Dismiss
@@ -235,18 +308,20 @@ export default function BubbleApp() {
                 <input
                   ref={inputRef}
                   type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
                   placeholder="Ask YoYo anything..."
                   className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2
                     text-[13px] text-white placeholder-zinc-500 outline-none
                     focus:border-violet-500/50 transition-colors"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleSubmit();
-                    if (e.key === "Escape") setState("ambient");
+                    if (e.key === "Escape") goAmbient();
                   }}
                 />
                 <div className="flex items-center justify-between mt-1.5">
                   <span className="text-[10px] text-zinc-600">
-                    Enter to analyze
+                    Enter to {inputValue.trim() ? "ask" : "analyze"}
                   </span>
                   <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
                     Esc
@@ -265,8 +340,8 @@ export default function BubbleApp() {
               </div>
             )}
 
-            {/* Done state: analysis result */}
-            {state === "done" && result && (
+            {/* Done state: passive analysis result */}
+            {state === "done" && result && !intentResult && (
               <>
                 <div className="px-3 pb-2">
                   <p className="text-[13px] text-zinc-300 leading-snug">
@@ -299,6 +374,75 @@ export default function BubbleApp() {
                     onExecute={handleExecute}
                     compact
                   />
+                )}
+              </>
+            )}
+
+            {/* Done state: intent plan */}
+            {state === "done" && intentResult && (
+              <>
+                <div className="px-3 pb-2">
+                  <p className="text-[13px] text-zinc-300 leading-snug">
+                    {intentResult.understanding}
+                  </p>
+                </div>
+
+                <div className="mx-3 border-t border-white/[0.06]" />
+
+                {executingPlan ? (
+                  <div className="px-3 py-2 space-y-1.5">
+                    {intentResult.plan.map((step, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        {i < currentStep ? (
+                          <svg className="w-3 h-3 text-violet-400 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                            <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : i === currentStep ? (
+                          <span className="w-3 h-3 border border-violet-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                        ) : (
+                          <span className="w-3 h-3 rounded-full border border-zinc-600 flex-shrink-0" />
+                        )}
+                        <span className={`text-[12px] ${i <= currentStep ? "text-zinc-300" : "text-zinc-600"}`}>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : actionDone ? (
+                  <div className="px-3 py-4 flex flex-col items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-violet-400">
+                      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span className="text-[11px] text-zinc-400">Done</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-3 py-2 space-y-1.5">
+                      {intentResult.plan.map((step, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-[11px] text-zinc-500 font-mono mt-0.5 flex-shrink-0">{i + 1}.</span>
+                          <span className="text-[12px] text-zinc-400">{step.label}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {intentResult.needs_confirmation && (
+                      <div className="px-3 pb-3 pt-1 flex gap-2">
+                        <button
+                          onClick={() => executePlan(intentResult.plan)}
+                          className="flex-1 text-[12px] px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={goAmbient}
+                          className="text-[12px] px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}

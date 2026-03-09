@@ -36,6 +36,20 @@ pub struct AnalysisResult {
     pub need_full_context: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlanStep {
+    pub action_type: String,
+    pub label: String,
+    pub params: ActionParams,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IntentResult {
+    pub understanding: String,
+    pub plan: Vec<PlanStep>,
+    pub needs_confirmation: bool,
+}
+
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:
 
 1. What is the user currently doing? (1 sentence)
@@ -62,6 +76,31 @@ Respond ONLY with valid JSON, no other text:
 
 The "suggested_quest" field is OPTIONAL. Only include it when you detect a clear, meaningful goal. Omit the field entirely if no clear goal is detected.
 The "need_full_context" field is OPTIONAL. Set to true ONLY if the visible content is clearly truncated at the edges and you need the full screen to analyze properly. Default is false — omit it in most cases."#;
+
+const INTENT_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. The user has given you a request. Based on the request AND the current screen context, create a plan to help them.
+
+1. First, understand what the user wants — consider their words AND what's on screen.
+2. Create an ordered plan of steps to achieve their goal.
+
+Each step must use one of these action types:
+- open_url: Open a URL (provide the url in params)
+- open_app: Switch to an app (provide the bundle_id in params.app, e.g. "com.apple.Safari"). If an [Open Windows] section is provided, use the exact bundle_id listed there.
+- copy_to_clipboard: Copy text (provide the text in params)
+- run_command: Run a terminal command (provide the command in params). Keep commands safe and non-destructive.
+- notify: Send a notification (provide the message in params)
+
+Set "needs_confirmation" to true for plans with run_command or multiple steps.
+Set it to false for simple single-step actions (open_url, open_app).
+
+Respond ONLY with valid JSON, no other text:
+{
+  "understanding": "User wants to ...",
+  "plan": [
+    {"action_type": "open_app", "label": "Open Terminal", "params": {"app": "com.apple.Terminal"}},
+    {"action_type": "run_command", "label": "Navigate to project", "params": {"command": "cd ~/project && ls"}}
+  ],
+  "needs_confirmation": true
+}"#;
 
 /// Returns the analysis depth instruction to prepend to the prompt.
 fn depth_instruction(depth: &str) -> &'static str {
@@ -102,21 +141,21 @@ fn max_tokens_for_depth(depth: &str) -> u32 {
     }
 }
 
-/// Build the full prompt with screen context and activity history.
-pub fn build_full_prompt(
+/// Build shared context sections (language, profile, context, history, quests, screen info).
+fn build_context_sections(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     ctx: &ScreenContext,
     is_focus_crop: bool,
     has_screenshot: bool,
-) -> String {
+) -> Vec<String> {
     let mut parts = Vec::new();
 
     // Language instruction
     match language {
         "en" => parts.push("Respond in English.".to_string()),
-        _ => parts.push("请用中文回复。context 字段和 label 字段都必须使用中文。".to_string()),
+        _ => parts.push("请用中文回复。所有面向用户的文字字段都必须使用中文。".to_string()),
     }
 
     if let Ok(profile) = user_data::read_profile() {
@@ -148,16 +187,10 @@ pub fn build_full_prompt(
         parts.push(history_lines.join("\n"));
     }
 
-    // Inject main quests — detect direction changes and ask about new quests
+    // Inject main quests
     if let Some(quest) = main_quest {
         parts.push(format!(
-            "[Current Main Quests]\nThe user's active main goals:\n- {}\n\
-            Prioritize suggesting actions that help achieve these quests.\n\
-            IMPORTANT: If the user's current activity seems UNRELATED to any existing quest above, \
-            do NOT force-fit it into an existing quest. Instead:\n\
-            1. Describe what the user is ACTUALLY doing in the \"context\" field (be accurate, not forced)\n\
-            2. Suggest the new direction as \"suggested_quest\" — phrase it as a question, e.g. \"为 Reth 项目做贡献？\" or \"学习 Rust 异步编程？\"\n\
-            Do NOT re-suggest quests that already exist. Only suggest genuinely new, distinct directions.",
+            "[Current Main Quests]\nThe user's active main goals:\n- {}",
             quest
         ));
     }
@@ -189,8 +222,56 @@ pub fn build_full_prompt(
     // Depth-specific instruction
     parts.push(depth_instruction(&ctx.depth).to_string());
 
+    parts
+}
+
+/// Build the full prompt for passive screen analysis.
+pub fn build_full_prompt(
+    language: &str,
+    recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
+    ctx: &ScreenContext,
+    is_focus_crop: bool,
+    has_screenshot: bool,
+) -> String {
+    let mut parts = build_context_sections(
+        language,
+        recent_activities,
+        main_quest,
+        ctx,
+        is_focus_crop,
+        has_screenshot,
+    );
+
+    // Analysis-specific: quest direction detection
+    if main_quest.is_some() {
+        parts.push(
+            "IMPORTANT: If the user's current activity seems UNRELATED to any existing quest above, \
+            do NOT force-fit it into an existing quest. Instead:\n\
+            1. Describe what the user is ACTUALLY doing in the \"context\" field (be accurate, not forced)\n\
+            2. Suggest the new direction as \"suggested_quest\" — phrase it as a question, e.g. \"为 Reth 项目做贡献？\" or \"学习 Rust 异步编程？\"\n\
+            Do NOT re-suggest quests that already exist. Only suggest genuinely new, distinct directions."
+                .to_string(),
+        );
+    }
+
     parts.push(ANALYSIS_PROMPT.to_string());
     parts.push("Consider the user's recent activity history above to provide more contextual and relevant suggestions. If you notice a workflow pattern, suggest the likely next step.".to_string());
+    parts.join("\n\n")
+}
+
+/// Build the prompt for intent understanding (user request + screen context → plan).
+pub fn build_intent_prompt(
+    user_input: &str,
+    language: &str,
+    recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
+    ctx: &ScreenContext,
+) -> String {
+    let mut parts =
+        build_context_sections(language, recent_activities, main_quest, ctx, false, false);
+    parts.push(format!("[User Request]\n{}", user_input));
+    parts.push(INTENT_PROMPT.to_string());
     parts.join("\n\n")
 }
 
@@ -338,22 +419,33 @@ pub async fn analyze_with_api(
     parse_ai_response(text)
 }
 
-/// Parse the AI response text into an AnalysisResult
-fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
-    // Try to find JSON in the response (might be wrapped in markdown code blocks)
-    let json_str = if let Some(start) = response.find('{') {
+/// Extract JSON object from AI response (handles markdown code blocks).
+fn extract_json_block(response: &str) -> &str {
+    if let Some(start) = response.find('{') {
         if let Some(end) = response.rfind('}') {
-            &response[start..=end]
-        } else {
-            response
+            return &response[start..=end];
         }
-    } else {
-        response
-    };
+    }
+    response
+}
 
+/// Parse the AI response text into an AnalysisResult.
+fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
+    let json_str = extract_json_block(response);
     serde_json::from_str::<AnalysisResult>(json_str).map_err(|e| {
         format!(
             "Failed to parse AI response as JSON: {}. Raw: {}",
+            e, response
+        )
+    })
+}
+
+/// Parse the AI response text into an IntentResult.
+fn parse_intent_response(response: &str) -> Result<IntentResult, String> {
+    let json_str = extract_json_block(response);
+    serde_json::from_str::<IntentResult>(json_str).map_err(|e| {
+        format!(
+            "Failed to parse intent response as JSON: {}. Raw: {}",
             e, response
         )
     })
@@ -399,6 +491,93 @@ fn format_relative_time(timestamp: &str, now: &chrono::NaiveDateTime) -> String 
         }
         Err(_) => "unknown".to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Intent understanding (user request + screen context → plan)
+// ---------------------------------------------------------------------------
+
+/// Understand user intent via Claude CLI (text-only, no image).
+pub async fn intent_with_cli(
+    user_input: &str,
+    model: &str,
+    language: &str,
+    recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
+    ctx: &ScreenContext,
+) -> Result<IntentResult, String> {
+    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, ctx);
+
+    let output = tokio::process::Command::new("claude")
+        .args([
+            "-p",
+            &prompt,
+            "--output-format",
+            "text",
+            "--max-turns",
+            "2",
+            "--model",
+            model,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Claude CLI failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let response = String::from_utf8_lossy(&output.stdout).to_string();
+    parse_intent_response(&response)
+}
+
+/// Understand user intent via Claude API (text-only, no image).
+pub async fn intent_with_api(
+    user_input: &str,
+    api_key: &str,
+    model: &str,
+    language: &str,
+    recent_activities: &[ActivityRecord],
+    main_quest: Option<&str>,
+    ctx: &ScreenContext,
+) -> Result<IntentResult, String> {
+    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, ctx);
+
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": prompt}]
+    });
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+
+    let text = json["content"][0]["text"]
+        .as_str()
+        .ok_or("No text in API response")?;
+
+    parse_intent_response(text)
 }
 
 // ---------------------------------------------------------------------------

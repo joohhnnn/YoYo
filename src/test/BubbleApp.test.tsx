@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import BubbleApp from "../BubbleApp";
-import type { AnalysisResult } from "../types";
+import type { AnalysisResult, IntentResult } from "../types";
 
 // --- Test fixtures ---
 
@@ -13,6 +13,15 @@ const mockResult: AnalysisResult = {
     { type: "open_url", label: "Open React Docs", params: { url: "https://react.dev" } },
     { type: "copy_to_clipboard", label: "Copy useEffect example", params: { text: "useEffect(() => {}, [])" } },
   ],
+};
+
+const mockIntentResult: IntentResult = {
+  understanding: "User wants to open the React documentation",
+  plan: [
+    { action_type: "open_url", label: "Open React website", params: { url: "https://react.dev" } },
+    { action_type: "notify", label: "Notify when done", params: { message: "React docs opened" } },
+  ],
+  needs_confirmation: true,
 };
 
 const mockSettings = {
@@ -31,13 +40,15 @@ const mockSettings = {
 
 // --- Helpers ---
 
-function setupInvokeMock(overrides: { result?: AnalysisResult | null } = {}) {
-  const { result = null } = overrides;
+function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResult?: IntentResult | null } = {}) {
+  const { result = null, intentResult = null } = overrides;
   (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
     switch (cmd) {
       case "get_settings": return Promise.resolve(mockSettings);
       case "get_last_analysis": return Promise.resolve(result);
       case "analyze_screen": return Promise.resolve(result ?? mockResult);
+      case "understand_intent": return Promise.resolve(intentResult ?? mockIntentResult);
+      case "execute_action": return Promise.resolve(null);
       default: return Promise.resolve(null);
     }
   });
@@ -239,6 +250,127 @@ describe("BubbleApp State Machine", () => {
       expect(innerDiv?.className).toContain("flex-col");
       expect(innerDiv?.className).toContain("overflow-hidden");
       expect(innerDiv?.className).toContain("max-h-screen");
+    });
+  });
+
+  describe("Intent Pipeline", () => {
+    it("empty enter triggers analyze_screen", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Enter with empty input → passive analysis
+      const input = screen.getByPlaceholderText("Ask YoYo anything...");
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      expect(invoke).toHaveBeenCalledWith("analyze_screen");
+    });
+
+    it("text + enter triggers understand_intent", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Type text and press Enter
+      const input = screen.getByPlaceholderText("Ask YoYo anything...");
+      await act(async () => {
+        fireEvent.change(input, { target: { value: "open react docs" } });
+      });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      expect(invoke).toHaveBeenCalledWith("understand_intent", { userInput: "open react docs" });
+    });
+
+    it("shows understanding text and plan steps", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      expect(screen.getByText(mockIntentResult.understanding)).toBeInTheDocument();
+      expect(screen.getByText("Open React website")).toBeInTheDocument();
+      expect(screen.getByText("Notify when done")).toBeInTheDocument();
+      expect(screen.getByText("Confirm")).toBeInTheDocument();
+    });
+
+    it("confirm button executes plan steps", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      // Should have called execute_action for each step
+      expect(invoke).toHaveBeenCalledWith("execute_action", {
+        actionType: "open_url",
+        params: { url: "https://react.dev" },
+      });
+      expect(invoke).toHaveBeenCalledWith("execute_action", {
+        actionType: "notify",
+        params: { message: "React docs opened" },
+      });
+    });
+
+    it("hint text changes based on input content", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Empty input shows "Enter to analyze"
+      expect(screen.getByText("Enter to analyze")).toBeInTheDocument();
+
+      // Type text → hint changes to "Enter to ask"
+      const input = screen.getByPlaceholderText("Ask YoYo anything...");
+      await act(async () => {
+        fireEvent.change(input, { target: { value: "hello" } });
+      });
+
+      expect(screen.getByText("Enter to ask")).toBeInTheDocument();
     });
   });
 });

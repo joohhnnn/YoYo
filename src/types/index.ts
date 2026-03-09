@@ -21,6 +21,18 @@ export interface AnalysisResult {
   need_full_context?: boolean;
 }
 
+export interface PlanStep {
+  action_type: string;
+  label: string;
+  params: ActionParams;
+}
+
+export interface IntentResult {
+  understanding: string;
+  plan: PlanStep[];
+  needs_confirmation: boolean;
+}
+
 export interface TaskItem {
   id: string;
   text: string;
