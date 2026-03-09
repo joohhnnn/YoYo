@@ -16,10 +16,7 @@ export interface AnalysisResult {
   context: string;
   actions: SuggestedAction[];
   suggested_quest?: string;
-  key_concepts?: string[];
   need_full_context?: boolean;
-  on_track?: boolean;
-  drift_message?: string;
 }
 
 export interface TaskItem {
@@ -42,9 +39,6 @@ export interface Settings {
   language: string;
   auto_analyze: boolean;
   analysis_depth: "casual" | "normal" | "deep";
-  scene_mode: "general" | "learning" | "working";
-  obsidian_enabled: boolean;
-  obsidian_vault_path: string;
 }
 
 export interface AppSwitchEvent {
@@ -66,34 +60,7 @@ export interface ActivityRecord {
   updated_at: string;
 }
 
-// Session types
-export interface Session {
-  id: string;
-  goal: string;
-  started_at: string;
-  ended_at?: string;
-  summary?: string;
-  status: string;
-}
-
-export interface TimelineEntry {
-  id: number;
-  session_id: string;
-  timestamp: string;
-  context: string;
-  app_name: string;
-}
-
-export interface SessionSummary {
-  session: Session;
-  timeline: TimelineEntry[];
-}
-
 export interface SpeechBubbleEvent {
   text: string;
   auto_dismiss_secs: number;
-}
-
-export interface SessionDriftEvent {
-  message: string;
 }

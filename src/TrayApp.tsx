@@ -1,16 +1,11 @@
 import { useEffect, useState } from "react";
 import { register } from "@tauri-apps/plugin-global-shortcut";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { StatusIndicator } from "./components/StatusIndicator";
 import { SettingsPanel } from "./components/SettingsPanel";
-import type { Session, SessionSummary } from "./types";
-import { getActiveSession, getSessionHistory } from "./services/sessions";
 
 export default function TrayApp() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [history, setHistory] = useState<Session[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -43,26 +38,6 @@ export default function TrayApp() {
       }
     };
     registerShortcuts();
-  }, []);
-
-  // Load state on mount
-  useEffect(() => {
-    getActiveSession().then(setSession);
-    getSessionHistory(10).then(setHistory);
-  }, []);
-
-  // Listen for session events
-  useEffect(() => {
-    const u1 = listen<Session>("session-started", (e) => {
-      setSession(e.payload);
-    });
-    const u2 = listen<SessionSummary>("session-ended", () => {
-      setSession(null);
-      getSessionHistory(10).then(setHistory);
-    });
-    return () => {
-      [u1, u2].forEach((u) => u.then((f) => f()));
-    };
   }, []);
 
   if (showSettings) {
@@ -116,58 +91,11 @@ export default function TrayApp() {
         </div>
       </div>
 
-      {/* Current session indicator */}
-      {session && (
-        <div className="mx-3 mt-2 px-2.5 py-1.5 bg-blue-500/[0.06] border border-blue-500/15 rounded-lg">
-          <div className="text-[10px] text-blue-400 uppercase tracking-wider mb-0.5">
-            Active Session
-          </div>
-          <div className="text-xs text-zinc-300 truncate">{session.goal}</div>
-        </div>
-      )}
-
-      {/* Session history */}
+      {/* Main content area */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-        <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">
-          Session History
+        <div className="text-zinc-600 text-xs text-center mt-4">
+          Press Cmd+Shift+R to analyze the current screen.
         </div>
-        {history.length === 0 && (
-          <div className="text-zinc-600 text-xs text-center mt-4">
-            No sessions yet. Use the floating bubble to start one.
-          </div>
-        )}
-        {history.map((s) => (
-          <div
-            key={s.id}
-            className="px-2 py-1.5 rounded mb-1 bg-zinc-800/30"
-          >
-            <div className="text-xs text-zinc-300 truncate">{s.goal}</div>
-            <div className="text-[10px] text-zinc-600 flex items-center gap-1.5">
-              <span>{s.started_at.slice(0, 10)}</span>
-              <span>{s.status === "completed" ? "✓" : s.status === "active" ? "●" : "—"}</span>
-              {s.ended_at &&
-                s.started_at &&
-                (() => {
-                  const ms =
-                    new Date(s.ended_at.replace(" ", "T")).getTime() -
-                    new Date(s.started_at.replace(" ", "T")).getTime();
-                  const m = Math.floor(ms / 60000);
-                  return (
-                    <span>
-                      {m >= 60
-                        ? `${Math.floor(m / 60)}h${m % 60}m`
-                        : `${m}m`}
-                    </span>
-                  );
-                })()}
-            </div>
-            {s.summary && (
-              <div className="text-[10px] text-zinc-500 mt-1 line-clamp-2">
-                {s.summary}
-              </div>
-            )}
-          </div>
-        ))}
       </div>
 
       {/* Footer status */}

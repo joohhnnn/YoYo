@@ -1,45 +1,29 @@
 import { useState, useEffect, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { getSettings, saveSettings } from "../services/storage";
 import { getProfile, saveProfile, getContext, saveContext } from "../services/userdata";
 import type { Settings } from "../types";
-
-interface ReflectionRecord {
-  id: number;
-  summary: string;
-  activity_count: number;
-  period_start: string;
-  period_end: string;
-  created_at: string;
-}
 
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5", desc: "Fast" },
   { value: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Balanced" },
 ];
 
-const SCENE_OPTIONS: { value: Settings["scene_mode"]; label: string; desc: string; depth: string }[] = [
-  { value: "general", label: "通用", desc: "读取光标附近焦点区域", depth: "normal" },
-  { value: "learning", label: "学习", desc: "全屏深度提取知识点 + key_concepts", depth: "deep" },
-  { value: "working", label: "工作", desc: "轻量识别 app + 工作流状态", depth: "casual" },
-];
-
 const PRESET_OPTIONS = [
   {
     label: "Developer",
     icon: "{ }",
-    config: { scene_mode: "working" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 5 },
+    config: { model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 5 },
   },
   {
     label: "Student",
     icon: "📖",
-    config: { scene_mode: "learning" as const, model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 10 },
+    config: { model: "claude-haiku-4-5-20251001", auto_analyze: true, analysis_cooldown_secs: 10 },
   },
   {
     label: "Writer",
     icon: "✍",
-    config: { scene_mode: "general" as const, model: "claude-haiku-4-5-20251001", auto_analyze: false, analysis_cooldown_secs: 15 },
+    config: { model: "claude-haiku-4-5-20251001", auto_analyze: false, analysis_cooldown_secs: 15 },
   },
 ];
 
@@ -58,7 +42,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [profileText, setProfileText] = useState("");
   const [contextText, setContextText] = useState("");
   const [editorDirty, setEditorDirty] = useState(false);
-  const [reflection, setReflection] = useState<ReflectionRecord | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -71,7 +54,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       getProfile().then((t) => { setProfileText(t); setEditorDirty(false); });
     } else if (tab === "context") {
       getContext().then((t) => { setContextText(t); setEditorDirty(false); });
-      invoke<ReflectionRecord | null>("get_latest_reflection").then(setReflection).catch(() => {});
     }
   }, [tab]);
 
@@ -158,29 +140,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
             <p className="text-[9px] text-zinc-600 mt-1">
               One-click preset for common workflows
-            </p>
-          </SettingRow>
-
-          {/* Scene Mode */}
-          <SettingRow label="Scene">
-            <div className="flex gap-1">
-              {SCENE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => update({ scene_mode: opt.value })}
-                  className={`flex-1 text-[10px] py-1 rounded transition-colors ${
-                    settings.scene_mode === opt.value
-                      ? "bg-violet-600 text-white"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-[9px] text-zinc-600 mt-1">
-              {SCENE_OPTIONS.find((o) => o.value === settings.scene_mode)
-                ?.desc ?? "读取光标附近焦点区域"}
             </p>
           </SettingRow>
 
@@ -333,71 +292,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </span>
             </div>
           </SettingRow>
-
-          {/* Obsidian */}
-          <SettingRow label="Obsidian">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-zinc-500">
-                Sync reflections & read notes
-              </span>
-              <button
-                onClick={() => update({ obsidian_enabled: !settings.obsidian_enabled })}
-                className={`w-8 h-[18px] rounded-full transition-colors relative ${
-                  settings.obsidian_enabled ? "bg-blue-600" : "bg-zinc-700"
-                }`}
-              >
-                <span
-                  className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
-                    settings.obsidian_enabled ? "left-[16px]" : "left-[2px]"
-                  }`}
-                />
-              </button>
-            </div>
-            {settings.obsidian_enabled && (
-              <>
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                      settings.obsidian_vault_path
-                        ? "bg-green-500"
-                        : "bg-zinc-600"
-                    }`}
-                  />
-                  <input
-                    type="text"
-                    value={settings.obsidian_vault_path}
-                    onChange={(e) =>
-                      update({ obsidian_vault_path: e.target.value })
-                    }
-                    placeholder="Vault path"
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1
-                      text-[10px] text-white placeholder-zinc-600 outline-none
-                      focus:border-blue-500/50"
-                  />
-                  <button
-                    onClick={async () => {
-                      const vaults = await invoke<string[]>(
-                        "detect_obsidian_vaults"
-                      );
-                      if (vaults.length > 0) {
-                        update({ obsidian_vault_path: vaults[0] });
-                      }
-                    }}
-                    className="px-1.5 py-1 text-[9px] bg-zinc-800 text-zinc-400
-                      hover:bg-zinc-700 hover:text-zinc-200 rounded transition-colors"
-                    title="Auto-detect vault"
-                  >
-                    Detect
-                  </button>
-                </div>
-                <p className="text-[9px] text-zinc-600 mt-1">
-                  {settings.obsidian_vault_path
-                    ? "Reflections sync to vault/YoYo/"
-                    : "Set vault path or click Detect"}
-                </p>
-              </>
-            )}
-          </SettingRow>
         </div>
       ) : (
         /* Profile / Context editor */
@@ -417,21 +311,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               focus:border-blue-500/50 font-mono"
             placeholder={tab === "profile" ? "# About Me\n..." : "# Current Context\n..."}
           />
-
-          {/* Latest AI Reflection (only in context tab) */}
-          {tab === "context" && reflection && (
-            <div className="mx-3 mb-3 px-2 py-1.5 bg-violet-500/[0.06] border border-violet-500/15 rounded text-[10px]">
-              <div className="text-violet-400 font-medium mb-1">
-                AI Reflection ({reflection.created_at})
-              </div>
-              <p className="text-zinc-400 leading-relaxed whitespace-pre-wrap">
-                {reflection.summary}
-              </p>
-              <div className="text-zinc-600 mt-1">
-                Based on {reflection.activity_count} activities
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
