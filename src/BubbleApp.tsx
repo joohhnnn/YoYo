@@ -22,6 +22,10 @@ export default function BubbleApp() {
   const [failedStep, setFailedStep] = useState(-1);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [executionId, setExecutionId] = useState<number | null>(null);
+  const [showTeachMe, setShowTeachMe] = useState(false);
+  const [workflowName, setWorkflowName] = useState("");
+  const [feedbackGiven, setFeedbackGiven] = useState(false);
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -153,12 +157,19 @@ export default function BubbleApp() {
     setFailedStep(-1);
     setIsRecording(false);
     setRecordingTime(0);
+    setExecutionId(null);
+    setShowTeachMe(false);
+    setWorkflowName("");
+    setFeedbackGiven(false);
     setError(null);
     clearDismissTimer();
   };
 
   const handleCancel = async () => {
     await invoke("cancel_execution").catch(() => {});
+    if (executionId) {
+      await invoke("complete_execution", { id: executionId, status: "cancelled" }).catch(() => {});
+    }
     goAmbient();
   };
 
@@ -242,6 +253,20 @@ export default function BubbleApp() {
     setExecutingPlan(true);
     setFailedStep(-1);
     setError(null);
+
+    // Record execution (only for fresh starts)
+    let execId = executionId;
+    if (startFrom === 0) {
+      try {
+        execId = await invoke<number>("record_execution", {
+          inputText: inputValue,
+          planJson: JSON.stringify(steps),
+          workflowId: intentResult?.workflow_id ?? null,
+        });
+        setExecutionId(execId);
+      } catch { /* non-critical */ }
+    }
+
     for (let i = startFrom; i < steps.length; i++) {
       setCurrentStep(i);
       try {
@@ -254,6 +279,12 @@ export default function BubbleApp() {
         setFailedStep(i);
         setExecutingPlan(false);
         setCurrentStep(-1);
+        if (execId) {
+          invoke("complete_execution", { id: execId, status: "failed", resultJson: String(e) }).catch(() => {});
+        }
+        if (intentResult?.workflow_id) {
+          invoke("update_workflow_count", { id: intentResult.workflow_id, success: false }).catch(() => {});
+        }
         return;
       }
     }
@@ -261,7 +292,34 @@ export default function BubbleApp() {
     setCurrentStep(-1);
     setActionDone(true);
     setTimeout(() => setActionDone(false), 1200);
+    if (execId) {
+      invoke("complete_execution", { id: execId, status: "success" }).catch(() => {});
+    }
+    if (intentResult?.workflow_id) {
+      invoke("update_workflow_count", { id: intentResult.workflow_id, success: true }).catch(() => {});
+    }
     startDismissTimer();
+  };
+
+  const handleSaveWorkflow = async () => {
+    if (!intentResult || !workflowName.trim()) return;
+    try {
+      await invoke("save_workflow", {
+        name: workflowName.trim(),
+        triggerContext: inputValue || intentResult.understanding,
+        stepsJson: JSON.stringify(intentResult.plan),
+      });
+      setShowTeachMe(false);
+      setWorkflowName("");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleFeedback = async (feedback: string) => {
+    if (!executionId || feedbackGiven) return;
+    setFeedbackGiven(true);
+    await invoke("feedback_execution", { id: executionId, feedback }).catch(() => {});
   };
 
   const handleExecute = async (action: SuggestedAction) => {
@@ -470,6 +528,11 @@ export default function BubbleApp() {
                   <p className="text-[13px] text-zinc-300 leading-snug">
                     {intentResult.understanding}
                   </p>
+                  {intentResult.workflow_id && (
+                    <span className="inline-block mt-1 text-[10px] text-violet-400/70 bg-violet-500/10 px-1.5 py-0.5 rounded">
+                      Saved workflow
+                    </span>
+                  )}
                 </div>
 
                 <div className="mx-3 border-t border-white/[0.06]" />
@@ -494,12 +557,80 @@ export default function BubbleApp() {
                     ))}
                   </div>
                 ) : actionDone ? (
-                  <div className="px-3 py-4 flex flex-col items-center gap-2">
-                    <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-violet-400">
-                      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <span className="text-[11px] text-zinc-400">Done</span>
-                  </div>
+                  showTeachMe ? (
+                    <div className="px-3 py-2">
+                      <p className="text-[11px] text-zinc-500 mb-1.5">Save as workflow:</p>
+                      <input
+                        type="text"
+                        value={workflowName}
+                        onChange={(e) => setWorkflowName(e.target.value)}
+                        placeholder="Workflow name..."
+                        className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-2.5 py-1.5
+                          text-[12px] text-white placeholder-zinc-500 outline-none
+                          focus:border-violet-500/50 transition-colors"
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveWorkflow(); }}
+                        autoFocus
+                      />
+                      <div className="mt-1.5 space-y-1">
+                        {intentResult.plan.map((step, i) => (
+                          <div key={i} className="text-[11px] text-zinc-500">
+                            {i + 1}. {step.label}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={handleSaveWorkflow}
+                          disabled={!workflowName.trim()}
+                          className="flex-1 text-[12px] px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-40"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setShowTeachMe(false)}
+                          className="text-[12px] px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 flex flex-col items-center gap-2">
+                      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-violet-400">
+                        <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span className="text-[11px] text-zinc-400">Done</span>
+                      {/* Feedback buttons */}
+                      {executionId && !feedbackGiven && (
+                        <div className="flex gap-3 mt-1">
+                          <button
+                            onClick={() => handleFeedback("good")}
+                            className="text-[11px] text-zinc-500 hover:text-green-400 transition-colors"
+                          >
+                            Good
+                          </button>
+                          <button
+                            onClick={() => handleFeedback("bad")}
+                            className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors"
+                          >
+                            Not right
+                          </button>
+                        </div>
+                      )}
+                      {feedbackGiven && (
+                        <span className="text-[10px] text-zinc-600">Thanks!</span>
+                      )}
+                      {/* Teach Me button */}
+                      {!intentResult.workflow_id && (
+                        <button
+                          onClick={() => { setShowTeachMe(true); clearDismissTimer(); }}
+                          className="text-[11px] text-violet-400/70 hover:text-violet-400 transition-colors mt-1"
+                        >
+                          Save as workflow
+                        </button>
+                      )}
+                    </div>
+                  )
                 ) : failedStep >= 0 ? (
                   <>
                     <div className="px-3 py-2 space-y-1.5">

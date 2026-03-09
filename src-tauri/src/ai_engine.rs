@@ -52,6 +52,8 @@ pub struct IntentResult {
     pub understanding: String,
     pub plan: Vec<PlanStep>,
     pub needs_confirmation: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<i64>,
 }
 
 const ANALYSIS_PROMPT: &str = r#"You are YoYo, a desktop workflow assistant. Based on the screenshot, determine:

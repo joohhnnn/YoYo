@@ -33,6 +33,7 @@ export interface IntentResult {
   understanding: string;
   plan: PlanStep[];
   needs_confirmation: boolean;
+  workflow_id?: number;
 }
 
 export interface TaskItem {

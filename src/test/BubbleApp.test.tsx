@@ -53,6 +53,12 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "request_voice_permission": return Promise.resolve(true);
       case "start_recording": return Promise.resolve("/tmp/test.wav");
       case "stop_and_transcribe": return Promise.resolve("hello world");
+      case "start_execution": return Promise.resolve(null);
+      case "record_execution": return Promise.resolve(42);
+      case "complete_execution": return Promise.resolve(null);
+      case "feedback_execution": return Promise.resolve(null);
+      case "save_workflow": return Promise.resolve(1);
+      case "update_workflow_count": return Promise.resolve(null);
       default: return Promise.resolve(null);
     }
   });
@@ -596,6 +602,158 @@ describe("BubbleApp State Machine", () => {
       });
 
       expect(screen.getByText("Microphone permission denied")).toBeInTheDocument();
+    });
+  });
+
+  describe("Workflow Learning", () => {
+    it("records execution when plan runs", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      expect(invoke).toHaveBeenCalledWith("record_execution", expect.objectContaining({
+        planJson: expect.any(String),
+      }));
+      expect(invoke).toHaveBeenCalledWith("complete_execution", expect.objectContaining({
+        id: 42,
+        status: "success",
+      }));
+    });
+
+    it("shows Save as workflow after successful execution", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      expect(screen.getByText("Save as workflow")).toBeInTheDocument();
+    });
+
+    it("save workflow form works", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      // Confirm execution
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      // Click "Save as workflow"
+      await act(async () => {
+        fireEvent.click(screen.getByText("Save as workflow"));
+      });
+
+      // Fill in name and save
+      const nameInput = screen.getByPlaceholderText("Workflow name...");
+      await act(async () => {
+        fireEvent.change(nameInput, { target: { value: "My Workflow" } });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Save"));
+      });
+
+      expect(invoke).toHaveBeenCalledWith("save_workflow", expect.objectContaining({
+        name: "My Workflow",
+        stepsJson: expect.any(String),
+      }));
+    });
+
+    it("feedback buttons call feedback_execution", async () => {
+      setupInvokeMock();
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: mockIntentResult });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      // Click "Good" feedback
+      await act(async () => {
+        fireEvent.click(screen.getByText("Good"));
+      });
+
+      expect(invoke).toHaveBeenCalledWith("feedback_execution", { id: 42, feedback: "good" });
+      expect(screen.getByText("Thanks!")).toBeInTheDocument();
+    });
+
+    it("shows workflow badge when matched", async () => {
+      setupInvokeMock();
+      const workflowIntent: IntentResult = {
+        understanding: "Matched workflow: Deploy app",
+        plan: mockIntentResult.plan,
+        needs_confirmation: true,
+        workflow_id: 5,
+      };
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: workflowIntent });
+      });
+
+      expect(screen.getByText("Saved workflow")).toBeInTheDocument();
+      // Should NOT show "Save as workflow" since it already is one
+      expect(screen.queryByText("Save as workflow")).not.toBeInTheDocument();
     });
   });
 });

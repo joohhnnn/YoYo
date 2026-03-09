@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod audio;
 pub mod intent;
 pub mod settings;
+pub mod workflow;
 
 // Re-export non-command functions used by lib.rs
 pub use analysis::do_analyze;

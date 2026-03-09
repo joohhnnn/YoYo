@@ -252,6 +252,13 @@ pub fn run() {
             commands::analysis::get_last_analysis,
             commands::activity::get_recent_activities,
             commands::intent::understand_intent,
+            commands::workflow::record_execution,
+            commands::workflow::complete_execution,
+            commands::workflow::feedback_execution,
+            commands::workflow::save_workflow,
+            commands::workflow::get_workflows,
+            commands::workflow::delete_workflow,
+            commands::workflow::update_workflow_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");

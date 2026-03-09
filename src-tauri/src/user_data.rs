@@ -361,3 +361,180 @@ pub fn get_total_activity_count() -> Result<i64, String> {
     conn.query_row("SELECT COUNT(*) FROM activity_log", [], |row| row.get(0))
         .map_err(|e| e.to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Executions (execution history)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExecutionRecord {
+    pub id: i64,
+    pub workflow_id: Option<i64>,
+    pub input_text: Option<String>,
+    pub plan_json: Option<String>,
+    pub result_json: Option<String>,
+    pub status: String,
+    pub user_feedback: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+/// Insert a new execution record. Returns the new row id.
+pub fn insert_execution(
+    workflow_id: Option<i64>,
+    input_text: &str,
+    plan_json: &str,
+) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO executions (workflow_id, input_text, plan_json, status) VALUES (?1, ?2, ?3, 'pending')",
+        params![workflow_id, input_text, plan_json],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Update execution status and optional result.
+pub fn update_execution_status(
+    id: i64,
+    status: &str,
+    result_json: Option<&str>,
+) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "UPDATE executions SET status = ?1, result_json = ?2, completed_at = datetime('now','localtime') WHERE id = ?3",
+        params![status, result_json, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Update user feedback on an execution.
+pub fn update_execution_feedback(id: i64, feedback: &str) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "UPDATE executions SET user_feedback = ?1 WHERE id = ?2",
+        params![feedback, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Get recent executions, newest first.
+pub fn get_recent_executions(limit: usize) -> Result<Vec<ExecutionRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workflow_id, input_text, plan_json, result_json, status, user_feedback, created_at, completed_at
+             FROM executions ORDER BY id DESC LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(ExecutionRecord {
+                id: row.get(0)?,
+                workflow_id: row.get(1)?,
+                input_text: row.get(2)?,
+                plan_json: row.get(3)?,
+                result_json: row.get(4)?,
+                status: row.get(5)?,
+                user_feedback: row.get(6)?,
+                created_at: row.get(7)?,
+                completed_at: row.get(8)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Workflows (learned workflows)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkflowRecord {
+    pub id: i64,
+    pub name: String,
+    pub trigger_context: String,
+    pub steps_json: String,
+    pub success_count: i64,
+    pub fail_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Insert a new workflow. Returns the new row id.
+pub fn insert_workflow(name: &str, trigger_context: &str, steps_json: &str) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO workflows (name, trigger_context, steps_json) VALUES (?1, ?2, ?3)",
+        params![name, trigger_context, steps_json],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Get all saved workflows.
+pub fn get_all_workflows() -> Result<Vec<WorkflowRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, trigger_context, steps_json, success_count, fail_count, created_at, updated_at
+             FROM workflows ORDER BY updated_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(WorkflowRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                trigger_context: row.get(2).unwrap_or_default(),
+                steps_json: row.get(3)?,
+                success_count: row.get(4)?,
+                fail_count: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+/// Increment success or fail count for a workflow.
+pub fn increment_workflow_count(id: i64, success: bool) -> Result<(), String> {
+    let conn = get_db()?;
+    let field = if success {
+        "success_count"
+    } else {
+        "fail_count"
+    };
+    conn.execute(
+        &format!(
+            "UPDATE workflows SET {} = {} + 1, updated_at = datetime('now','localtime') WHERE id = ?1",
+            field, field
+        ),
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Delete a workflow by id.
+pub fn delete_workflow(id: i64) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute("DELETE FROM workflows WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
