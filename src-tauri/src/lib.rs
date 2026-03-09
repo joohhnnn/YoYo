@@ -6,6 +6,7 @@ mod frame_diff;
 mod ocr;
 mod screen_context;
 mod screenshot;
+mod speech;
 mod user_data;
 mod window_list;
 mod window_monitor;
@@ -13,12 +14,23 @@ mod window_monitor;
 use crate::ai_engine::AnalysisResult;
 use crate::window_monitor::AppSwitchEvent;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{
     tray::TrayIconEvent, Emitter, Listener, LogicalPosition, Manager, WebviewUrl,
     WebviewWindowBuilder,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
+
+/// State for an active audio recording session.
+pub struct RecordingState {
+    pub _stream: cpal::Stream,
+    pub writer: Arc<Mutex<Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>>>>,
+    pub file_path: String,
+    pub start_time: std::time::Instant,
+}
+
+// cpal::Stream is not Send by default but we manage it safely via Mutex
+unsafe impl Send for RecordingState {}
 
 /// Shared app state for caching the latest analysis result.
 pub struct AppState {
@@ -31,6 +43,8 @@ pub struct AppState {
     pub current_app_pid: AtomicI64,
     // Abort flag for cancelling plan execution mid-step
     pub abort_flag: AtomicBool,
+    // Active audio recording session
+    pub recording: Mutex<Option<RecordingState>>,
 }
 
 pub fn run() {
@@ -47,6 +61,7 @@ pub fn run() {
             current_bundle_id: Mutex::new(String::new()),
             current_app_pid: AtomicI64::new(0),
             abort_flag: AtomicBool::new(false),
+            recording: Mutex::new(None),
         })
         .setup(|app| {
             // Start window monitor
@@ -222,6 +237,10 @@ pub fn run() {
             commands::actions::execute_action,
             commands::actions::start_execution,
             commands::actions::cancel_execution,
+            commands::audio::check_voice_permission,
+            commands::audio::request_voice_permission,
+            commands::audio::start_recording,
+            commands::audio::stop_and_transcribe,
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::get_tasks,

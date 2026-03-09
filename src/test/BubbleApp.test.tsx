@@ -49,6 +49,10 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "analyze_screen": return Promise.resolve(result ?? mockResult);
       case "understand_intent": return Promise.resolve(intentResult ?? mockIntentResult);
       case "execute_action": return Promise.resolve(null);
+      case "check_voice_permission": return Promise.resolve("granted");
+      case "request_voice_permission": return Promise.resolve(true);
+      case "start_recording": return Promise.resolve("/tmp/test.wav");
+      case "stop_and_transcribe": return Promise.resolve("hello world");
       default: return Promise.resolve(null);
     }
   });
@@ -476,6 +480,122 @@ describe("BubbleApp State Machine", () => {
       });
 
       expect(screen.getByText("Enter to ask")).toBeInTheDocument();
+    });
+  });
+
+  describe("Voice Input", () => {
+    it("mic button visible in active state", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      const micButton = container.querySelector("button[title='Voice input']");
+      expect(micButton).toBeTruthy();
+    });
+
+    it("mic button starts recording", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Click mic button
+      const micButton = container.querySelector("button[title='Voice input']");
+      await act(async () => {
+        fireEvent.click(micButton!);
+      });
+
+      expect(invoke).toHaveBeenCalledWith("check_voice_permission");
+      expect(invoke).toHaveBeenCalledWith("start_recording");
+    });
+
+    it("stop button stops and transcribes", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Start recording
+      const micButton = container.querySelector("button[title='Voice input']");
+      await act(async () => {
+        fireEvent.click(micButton!);
+      });
+
+      // Click stop button
+      const stopButton = container.querySelector("button[title='Stop recording']");
+      await act(async () => {
+        fireEvent.click(stopButton!);
+      });
+
+      expect(invoke).toHaveBeenCalledWith("stop_and_transcribe");
+
+      // Input should be filled with transcribed text
+      const input = screen.getByPlaceholderText("Ask YoYo anything...") as HTMLInputElement;
+      expect(input.value).toBe("hello world");
+    });
+
+    it("recording shows timer text", async () => {
+      setupInvokeMock();
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Start recording
+      const micButton = container.querySelector("button[title='Voice input']");
+      await act(async () => {
+        fireEvent.click(micButton!);
+      });
+
+      expect(screen.getByText("Recording... 0s")).toBeInTheDocument();
+    });
+
+    it("permission denied shows error", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "check_voice_permission": return Promise.resolve("denied");
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click dot → active
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Click mic button
+      const micButton = container.querySelector("button[title='Voice input']");
+      await act(async () => {
+        fireEvent.click(micButton!);
+      });
+
+      expect(screen.getByText("Microphone permission denied")).toBeInTheDocument();
     });
   });
 });

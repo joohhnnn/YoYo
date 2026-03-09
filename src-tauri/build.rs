@@ -83,5 +83,23 @@ fn main() {
         "Failed to compile Swift accessibility helper"
     );
 
+    // Compile Swift speech recognition helper binary
+    let speech_binary = format!("{}/yoyo-speech", out_dir);
+    println!("cargo:rerun-if-changed=swift/speech.swift");
+    println!("cargo:rustc-env=YOYO_SPEECH_BINARY={}", speech_binary);
+
+    let status = std::process::Command::new("swiftc")
+        .args([
+            "swift/speech.swift",
+            "-o",
+            &speech_binary,
+            "-O",
+            "-framework",
+            "Speech",
+        ])
+        .status()
+        .expect("swiftc is required — install Xcode Command Line Tools");
+    assert!(status.success(), "Failed to compile Swift speech helper");
+
     tauri_build::build()
 }

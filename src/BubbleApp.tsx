@@ -20,6 +20,8 @@ export default function BubbleApp() {
   const [currentStep, setCurrentStep] = useState(-1);
   const [inputValue, setInputValue] = useState("");
   const [failedStep, setFailedStep] = useState(-1);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -134,6 +136,14 @@ export default function BubbleApp() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [state]);
 
+  // Recording timer
+  useEffect(() => {
+    if (!isRecording) return;
+    setRecordingTime(0);
+    const interval = setInterval(() => setRecordingTime((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
   const goAmbient = () => {
     setState("ambient");
     setInputValue("");
@@ -141,6 +151,8 @@ export default function BubbleApp() {
     setExecutingPlan(false);
     setCurrentStep(-1);
     setFailedStep(-1);
+    setIsRecording(false);
+    setRecordingTime(0);
     setError(null);
     clearDismissTimer();
   };
@@ -182,6 +194,38 @@ export default function BubbleApp() {
         setError(String(e));
         setState("active");
       });
+  };
+
+  const handleStartRecording = async () => {
+    try {
+      const permission = await invoke<string>("check_voice_permission");
+      if (permission === "not_determined") {
+        const granted = await invoke<boolean>("request_voice_permission");
+        if (!granted) { setError("Microphone permission denied"); return; }
+      } else if (permission !== "granted") {
+        setError("Microphone permission denied"); return;
+      }
+      await invoke("start_recording");
+      setIsRecording(true);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleStopRecording = async () => {
+    setIsRecording(false);
+    setAnalysisStage("Transcribing...");
+    try {
+      const text = await invoke<string>("stop_and_transcribe");
+      setAnalysisStage(null);
+      if (text.trim()) {
+        setInputValue(text.trim());
+      }
+    } catch (e) {
+      setError(String(e));
+      setAnalysisStage(null);
+    }
   };
 
   const handleSubmit = () => {
@@ -314,27 +358,56 @@ export default function BubbleApp() {
               </div>
             )}
 
-            {/* Active state: text input */}
+            {/* Active state: text input + mic button */}
             {state === "active" && (
               <div className="px-3 pb-3">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="Ask YoYo anything..."
-                  className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2
-                    text-[13px] text-white placeholder-zinc-500 outline-none
-                    focus:border-violet-500/50 transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSubmit();
-                    if (e.key === "Escape") goAmbient();
-                  }}
-                />
+                <div className="flex gap-2">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder="Ask YoYo anything..."
+                    className="flex-1 bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2
+                      text-[13px] text-white placeholder-zinc-500 outline-none
+                      focus:border-violet-500/50 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSubmit();
+                      if (e.key === "Escape") goAmbient();
+                    }}
+                    disabled={isRecording}
+                  />
+                  <button
+                    onClick={isRecording ? handleStopRecording : handleStartRecording}
+                    className={`px-2 py-2 rounded-lg transition-colors flex-shrink-0 ${
+                      isRecording
+                        ? "bg-red-600 hover:bg-red-500 text-white"
+                        : "bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400"
+                    }`}
+                    title={isRecording ? "Stop recording" : "Voice input"}
+                  >
+                    {isRecording ? (
+                      <span className="w-3 h-3 rounded-sm bg-white block" />
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] text-zinc-600">
-                    Enter to {inputValue.trim() ? "ask" : "analyze"}
-                  </span>
+                  {isRecording ? (
+                    <span className="text-[10px] text-red-400">
+                      Recording... {recordingTime}s
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-zinc-600">
+                      Enter to {inputValue.trim() ? "ask" : "analyze"}
+                    </span>
+                  )}
                   <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-zinc-500 font-mono text-[9px]">
                     Esc
                   </kbd>

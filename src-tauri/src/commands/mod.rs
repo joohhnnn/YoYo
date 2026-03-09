@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod activity;
 pub mod analysis;
+pub mod audio;
 pub mod intent;
 pub mod settings;
 
