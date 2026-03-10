@@ -66,8 +66,8 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
     // Capture screen context (fast, no screenshot needed for intent)
     let ctx = screen_context::capture(&app);
 
-    // Gather activity history and quests (same pattern as do_analyze)
-    let recent = user_data::get_recent_activities(30).unwrap_or_default();
+    // Gather minimal activity history for intent (less context = faster)
+    let recent = user_data::get_recent_activities(5).unwrap_or_default();
 
     let main_quests: Vec<String> = data
         .tasks

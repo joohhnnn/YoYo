@@ -524,7 +524,7 @@ pub async fn intent_with_cli(
             "--output-format",
             "text",
             "--max-turns",
-            "2",
+            "1",
             "--model",
             model,
         ])
