@@ -153,6 +153,7 @@ fn max_tokens_for_depth(depth: &str) -> u32 {
 /// Build shared context sections (language, profile, context, history, quests, screen info).
 fn build_context_sections(
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
@@ -182,10 +183,15 @@ fn build_context_sections(
         }
     }
 
-    // Inject recent activity history with timestamps and duration
+    // Inject activity summary (progressive summarization)
+    if let Some(summary) = activity_summary {
+        parts.push(format!("[Activity History Summary]\n{}", summary));
+    }
+
+    // Inject recent unsummarized activities
     if !recent_activities.is_empty() {
         let now = chrono::Local::now().naive_local();
-        let mut history_lines = vec!["[Recent Activity History]".to_string()];
+        let mut history_lines = vec!["[Recent Activities]".to_string()];
         for activity in recent_activities {
             let duration = format_activity_duration(&activity.created_at, &activity.updated_at);
             let relative = format_relative_time(&activity.created_at, &now);
@@ -247,6 +253,7 @@ fn build_context_sections(
 /// Build the full prompt for passive screen analysis.
 pub fn build_full_prompt(
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
@@ -256,6 +263,7 @@ pub fn build_full_prompt(
 ) -> String {
     let mut parts = build_context_sections(
         language,
+        activity_summary,
         recent_activities,
         main_quest,
         current_scene,
@@ -285,13 +293,22 @@ pub fn build_full_prompt(
 pub fn build_intent_prompt(
     user_input: &str,
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> String {
-    let mut parts =
-        build_context_sections(language, recent_activities, main_quest, current_scene, ctx, false, false);
+    let mut parts = build_context_sections(
+        language,
+        activity_summary,
+        recent_activities,
+        main_quest,
+        current_scene,
+        ctx,
+        false,
+        false,
+    );
     parts.push(format!("[User Request]\n{}", user_input));
     parts.push(INTENT_PROMPT.to_string());
     parts.join("\n\n")
@@ -303,6 +320,7 @@ pub async fn analyze_with_cli(
     screenshot_path: Option<&Path>,
     model: &str,
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
@@ -311,6 +329,7 @@ pub async fn analyze_with_cli(
 ) -> Result<AnalysisResult, String> {
     let full_prompt = build_full_prompt(
         language,
+        activity_summary,
         recent_activities,
         main_quest,
         current_scene,
@@ -365,6 +384,7 @@ pub async fn analyze_with_api(
     api_key: &str,
     model: &str,
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
@@ -373,6 +393,7 @@ pub async fn analyze_with_api(
 ) -> Result<AnalysisResult, String> {
     let prompt_text = build_full_prompt(
         language,
+        activity_summary,
         recent_activities,
         main_quest,
         current_scene,
@@ -459,18 +480,20 @@ pub fn extract_json_block(response: &str) -> &str {
 fn sanitize_json(raw: &str) -> String {
     raw
         // Chinese full-width punctuation → ASCII
-        .replace('\u{FF0C}', ",")  // ，
-        .replace('\u{FF1A}', ":")  // ：
-        .replace('\u{3001}', ",")  // 、
+        .replace('\u{FF0C}', ",") // ，
+        .replace('\u{FF1A}', ":") // ：
+        .replace('\u{3001}', ",") // 、
         // Smart quotes → escaped ASCII quotes (inside JSON strings)
         .replace('\u{201C}', "\\\"") // "
         .replace('\u{201D}', "\\\"") // "
-        .replace('\u{2018}', "'")    // '
-        .replace('\u{2019}', "'")    // '
+        .replace('\u{2018}', "'") // '
+        .replace('\u{2019}', "'") // '
 }
 
 /// Try to parse JSON, falling back to sanitized version on failure.
-fn parse_json_lenient<T: serde::de::DeserializeOwned>(json_str: &str) -> Result<T, serde_json::Error> {
+fn parse_json_lenient<T: serde::de::DeserializeOwned>(
+    json_str: &str,
+) -> Result<T, serde_json::Error> {
     // Try raw first
     match serde_json::from_str::<T>(json_str) {
         Ok(v) => Ok(v),
@@ -555,12 +578,21 @@ pub async fn intent_with_cli(
     user_input: &str,
     model: &str,
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> Result<IntentResult, String> {
-    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, current_scene, ctx);
+    let prompt = build_intent_prompt(
+        user_input,
+        language,
+        activity_summary,
+        recent_activities,
+        main_quest,
+        current_scene,
+        ctx,
+    );
 
     let output = tokio::process::Command::new("claude")
         .args([
@@ -594,12 +626,21 @@ pub async fn intent_with_api(
     api_key: &str,
     model: &str,
     language: &str,
+    activity_summary: Option<&str>,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
     current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> Result<IntentResult, String> {
-    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, current_scene, ctx);
+    let prompt = build_intent_prompt(
+        user_input,
+        language,
+        activity_summary,
+        recent_activities,
+        main_quest,
+        current_scene,
+        ctx,
+    );
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
@@ -682,6 +723,49 @@ pub async fn simple_chat_api(prompt: &str, api_key: &str, model: &str) -> Result
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "No text in API response".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Progressive summarization
+// ---------------------------------------------------------------------------
+
+const SUMMARIZE_PROMPT: &str = r#"You are summarizing a user's computer activity history for a desktop assistant.
+
+Given:
+1. A previous rolling summary (if any) that covers older activities
+2. New activity records that haven't been summarized yet
+
+Create a SINGLE PARAGRAPH that:
+- Merges the previous summary with the new activities into one cohesive narrative
+- Captures the user's workflow patterns, main focus areas, and transitions
+- Preserves important specifics (project names, key tasks, tools used)
+- Drops redundant or trivial details (e.g., repeated app switches)
+- Stays under 150 words
+- Is written in the same language as the activity records
+
+Output ONLY the summary paragraph, no JSON, no headers, no extra text."#;
+
+/// Build the summarization prompt from previous summary + new records.
+pub fn build_summarize_prompt(
+    prev_summary: Option<&str>,
+    new_activities: &[ActivityRecord],
+) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(summary) = prev_summary {
+        parts.push(format!("[Previous Summary]\n{}", summary));
+    } else {
+        parts.push("[Previous Summary]\nNo previous summary (first summarization).".to_string());
+    }
+
+    let mut lines = vec!["[New Activities]".to_string()];
+    for a in new_activities {
+        lines.push(format!("- {} [{}] {}", a.created_at, a.app_name, a.context));
+    }
+    parts.push(lines.join("\n"));
+
+    parts.push(SUMMARIZE_PROMPT.to_string());
+    parts.join("\n\n")
 }
 
 // ---------------------------------------------------------------------------

@@ -217,6 +217,23 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         log::info!("DB migration 2 applied: V2 tables (workflows, executions, knowledge)");
     }
 
+    // Migration 3: Activity summary table for progressive summarization
+    if current < 3 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS activity_summary (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary_text      TEXT NOT NULL,
+                last_activity_id  INTEGER NOT NULL,
+                activity_count    INTEGER NOT NULL,
+                total_summarized  INTEGER NOT NULL,
+                created_at        TEXT DEFAULT (datetime('now','localtime'))
+            );",
+        )
+        .map_err(|e| format!("Migration 3 failed: {}", e))?;
+        set_schema_version(conn, 3)?;
+        log::info!("DB migration 3 applied: activity_summary table");
+    }
+
     Ok(())
 }
 
@@ -360,6 +377,106 @@ pub fn get_total_activity_count() -> Result<i64, String> {
     let conn = get_db()?;
     conn.query_row("SELECT COUNT(*) FROM activity_log", [], |row| row.get(0))
         .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Activity summaries (progressive summarization)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ActivitySummary {
+    pub id: i64,
+    pub summary_text: String,
+    pub last_activity_id: i64,
+    pub activity_count: i64,
+    pub total_summarized: i64,
+    pub created_at: String,
+}
+
+/// Get the latest rolling summary, if any.
+pub fn get_latest_summary() -> Result<Option<ActivitySummary>, String> {
+    let conn = get_db()?;
+    let result = conn.query_row(
+        "SELECT id, summary_text, last_activity_id, activity_count, total_summarized, created_at
+         FROM activity_summary ORDER BY id DESC LIMIT 1",
+        [],
+        |row| {
+            Ok(ActivitySummary {
+                id: row.get(0)?,
+                summary_text: row.get(1)?,
+                last_activity_id: row.get(2)?,
+                activity_count: row.get(3)?,
+                total_summarized: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        },
+    );
+    match result {
+        Ok(summary) => Ok(Some(summary)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Get activity records with id > the given id (unsummarized records).
+pub fn get_activities_since(after_id: i64) -> Result<Vec<ActivityRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, app_name, bundle_id, context, created_at, updated_at
+             FROM activity_log WHERE id > ?1 ORDER BY id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![after_id], |row| {
+            Ok(ActivityRecord {
+                id: row.get(0)?,
+                app_name: row.get(1)?,
+                bundle_id: row.get(2)?,
+                context: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+/// Count unsummarized activities (those with id > last summarized id).
+pub fn count_unsummarized() -> Result<i64, String> {
+    let last_id = get_latest_summary()?
+        .map(|s| s.last_activity_id)
+        .unwrap_or(0);
+    let conn = get_db()?;
+    conn.query_row(
+        "SELECT COUNT(*) FROM activity_log WHERE id > ?1",
+        params![last_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Insert a new rolling summary.
+pub fn insert_summary(
+    summary_text: &str,
+    last_activity_id: i64,
+    activity_count: i64,
+    total_summarized: i64,
+) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO activity_summary (summary_text, last_activity_id, activity_count, total_summarized)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![summary_text, last_activity_id, activity_count, total_summarized],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +788,11 @@ pub fn cleanup_old_data() -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("cleanup executions: {}", e))?;
+    conn.execute(
+        "DELETE FROM activity_summary WHERE id NOT IN (SELECT id FROM activity_summary ORDER BY id DESC LIMIT 20)",
+        [],
+    )
+    .map_err(|e| format!("cleanup activity_summary: {}", e))?;
     Ok(())
 }
 

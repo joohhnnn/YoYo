@@ -126,8 +126,8 @@ pub fn is_learning_context(ctx: &ScreenContext, scene: Option<&str>) -> bool {
     if let Some(s) = scene {
         let s_lower = s.to_lowercase();
         let learning_keywords = [
-            "english", "class", "learning", "reading", "study", "lesson",
-            "课", "学", "阅读", "复习",
+            "english", "class", "learning", "reading", "study", "lesson", "课", "学", "阅读",
+            "复习",
         ];
         if learning_keywords.iter().any(|kw| s_lower.contains(kw)) {
             return true;

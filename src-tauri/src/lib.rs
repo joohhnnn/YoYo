@@ -259,7 +259,14 @@ pub fn run() {
                                 &result.context,
                                 &actions_json,
                             ) {
-                                Ok(_) => {}
+                                Ok(true) => {
+                                    // New record inserted — check if summarization needed
+                                    let app_for_summary = app.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        maybe_run_summarization(&app_for_summary).await;
+                                    });
+                                }
+                                Ok(false) => {} // deduplicated
                                 Err(e) => log::error!("Failed to record activity: {}", e),
                             }
 
@@ -470,6 +477,94 @@ fn position_bubble_top_right(window: &tauri::WebviewWindow) {
 }
 
 // ---------------------------------------------------------------------------
+// Progressive summarization
+// ---------------------------------------------------------------------------
+
+/// Check if enough unsummarized activities have accumulated, and if so,
+/// generate a new rolling summary in the background.
+async fn maybe_run_summarization(app: &tauri::AppHandle) {
+    const SUMMARIZE_THRESHOLD: i64 = 10;
+
+    let unsummarized = match user_data::count_unsummarized() {
+        Ok(n) => n,
+        Err(e) => {
+            log::error!("count_unsummarized failed: {}", e);
+            return;
+        }
+    };
+
+    if unsummarized < SUMMARIZE_THRESHOLD {
+        return;
+    }
+
+    log::info!(
+        "Triggering progressive summarization ({} unsummarized records)",
+        unsummarized
+    );
+
+    let prev_summary = user_data::get_latest_summary().unwrap_or(None);
+    let last_id = prev_summary
+        .as_ref()
+        .map(|s| s.last_activity_id)
+        .unwrap_or(0);
+    let prev_total = prev_summary
+        .as_ref()
+        .map(|s| s.total_summarized)
+        .unwrap_or(0);
+    let prev_text = prev_summary.as_ref().map(|s| s.summary_text.as_str());
+
+    let new_activities = match user_data::get_activities_since(last_id) {
+        Ok(a) => a,
+        Err(e) => {
+            log::error!("get_activities_since failed: {}", e);
+            return;
+        }
+    };
+
+    if new_activities.is_empty() {
+        return;
+    }
+
+    let new_last_id = new_activities.last().unwrap().id;
+    let new_count = new_activities.len() as i64;
+
+    let prompt = ai_engine::build_summarize_prompt(prev_text, &new_activities);
+    let data = commands::settings::load_data(app);
+
+    let summary_result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await
+    } else {
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await
+    };
+
+    match summary_result {
+        Ok(text) => {
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() {
+                log::warn!("Summarization returned empty text, skipping");
+                return;
+            }
+            match user_data::insert_summary(
+                &trimmed,
+                new_last_id,
+                new_count,
+                prev_total + new_count,
+            ) {
+                Ok(id) => log::info!(
+                    "Saved activity summary #{} (covers {} total records)",
+                    id,
+                    prev_total + new_count
+                ),
+                Err(e) => log::error!("Failed to save summary: {}", e),
+            }
+        }
+        Err(e) => {
+            log::error!("Summarization AI call failed: {}", e);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Knowledge extraction helpers (Phase 2.2)
 // ---------------------------------------------------------------------------
 
@@ -482,8 +577,12 @@ async fn extract_and_store_knowledge(
     current_scene: Option<&str>,
 ) -> Result<usize, String> {
     let data = commands::settings::load_data(app);
-    let prompt =
-        ai_engine::build_knowledge_prompt(&data.settings.language, ctx, analysis_context, current_scene);
+    let prompt = ai_engine::build_knowledge_prompt(
+        &data.settings.language,
+        ctx,
+        analysis_context,
+        current_scene,
+    );
 
     let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await?

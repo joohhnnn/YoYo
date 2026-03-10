@@ -66,7 +66,9 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
     // Capture screen context (fast, no screenshot needed for intent)
     let ctx = screen_context::capture(&app);
 
-    // Gather minimal activity history for intent (less context = faster)
+    // Gather activity context — use summary if available + recent 5
+    let summary = user_data::get_latest_summary().unwrap_or(None);
+    let summary_text = summary.as_ref().map(|s| s.summary_text.as_str());
     let recent = user_data::get_recent_activities(5).unwrap_or_default();
 
     let main_quests: Vec<String> = data
@@ -89,6 +91,7 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
             &data.settings.api_key,
             &data.settings.model,
             &data.settings.language,
+            summary_text,
             &recent,
             main_quest.as_deref(),
             current_scene,
@@ -100,6 +103,7 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
             &user_input,
             &data.settings.model,
             &data.settings.language,
+            summary_text,
             &recent,
             main_quest.as_deref(),
             current_scene,

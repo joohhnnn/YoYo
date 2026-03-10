@@ -31,8 +31,20 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         return Err("App is blacklisted".to_string());
     }
 
-    // Step 3: Gather activity history and quests
-    let recent = user_data::get_recent_activities(30).unwrap_or_default();
+    // Step 3: Gather activity history (progressive summarization)
+    let summary = user_data::get_latest_summary().unwrap_or(None);
+    let last_summarized_id = summary.as_ref().map(|s| s.last_activity_id).unwrap_or(0);
+    let summary_text = summary.as_ref().map(|s| s.summary_text.as_str());
+
+    let recent = if last_summarized_id > 0 {
+        let mut all = user_data::get_activities_since(last_summarized_id).unwrap_or_default();
+        all.reverse(); // newest first
+        all.truncate(5);
+        all
+    } else {
+        // Cold start: no summary yet, send last 10 raw records
+        user_data::get_recent_activities(10).unwrap_or_default()
+    };
 
     let main_quests: Vec<String> = data
         .tasks
@@ -101,6 +113,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.api_key,
             &data.settings.model,
             &data.settings.language,
+            summary_text,
             &recent,
             main_quest.as_deref(),
             current_scene,
@@ -113,6 +126,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             screenshot_path.as_deref(),
             &data.settings.model,
             &data.settings.language,
+            summary_text,
             &recent,
             main_quest.as_deref(),
             current_scene,
@@ -141,6 +155,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 &data.settings.api_key,
                 &data.settings.model,
                 &data.settings.language,
+                summary_text,
                 &recent,
                 main_quest.as_deref(),
                 current_scene,
@@ -153,6 +168,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 Some(full_screenshot.as_path()),
                 &data.settings.model,
                 &data.settings.language,
+                summary_text,
                 &recent,
                 main_quest.as_deref(),
                 current_scene,
