@@ -36,6 +36,7 @@ export default function BubbleApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
   const prevState = useRef<BubbleState>("ambient");
+  const stateRef = useRef<BubbleState>("ambient");
   const shortcutsRef = useRef({ toggle: "CmdOrCtrl+Shift+Y", analyze: "CmdOrCtrl+Shift+R" });
 
   // Dynamic window resize based on state
@@ -97,10 +98,17 @@ export default function BubbleApp() {
     });
 
     const unlistenProgress = listen<string>("analysis-progress", (event) => {
+      // Don't show analysis progress while user is typing
+      if (stateRef.current === "active") return;
       setAnalysisStage(event.payload);
     });
 
     const unlistenAnalysis = listen<AnalysisResult>("analysis-complete", (event) => {
+      // Don't interrupt user typing — cache result silently
+      if (stateRef.current === "active") {
+        setResult(event.payload);
+        return;
+      }
       setResult(event.payload);
       setState("done");
       setAnalysisStage(null);
@@ -153,6 +161,7 @@ export default function BubbleApp() {
 
   // Focus input when entering active state
   useEffect(() => {
+    stateRef.current = state;
     if (state === "active") {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
