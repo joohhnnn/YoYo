@@ -427,7 +427,7 @@ pub async fn analyze_with_api(
 }
 
 /// Extract JSON object from AI response (handles markdown code blocks).
-fn extract_json_block(response: &str) -> &str {
+pub fn extract_json_block(response: &str) -> &str {
     if let Some(start) = response.find('{') {
         if let Some(end) = response.rfind('}') {
             return &response[start..=end];
@@ -634,4 +634,74 @@ pub async fn simple_chat_api(prompt: &str, api_key: &str, model: &str) -> Result
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "No text in API response".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge extraction (Phase 2.2)
+// ---------------------------------------------------------------------------
+
+const KNOWLEDGE_EXTRACTION_PROMPT: &str = r#"You are a knowledge extraction assistant. Based on the user's current screen context, extract any valuable knowledge items.
+
+Extract ONLY items that are genuinely educational or useful to remember. Skip trivial or navigation-related text.
+
+For each item, categorize as:
+- "vocab": Technical terms, API names, concepts with clear definitions
+- "reading": A brief summary of what the user is reading (1-2 sentences)
+- "concept": Key concepts, patterns, or principles being studied
+
+Respond ONLY with valid JSON:
+{
+  "items": [
+    {"kind": "vocab", "content": "useEffect", "definition": "A React Hook that lets you synchronize a component with an external system"},
+    {"kind": "reading", "content": "React Hooks documentation - explaining how to use side effects in functional components"},
+    {"kind": "concept", "content": "Hooks must be called at the top level of a component, not inside conditions or loops"}
+  ]
+}
+
+If there is nothing worth extracting, respond with: {"items": []}
+Keep the total to a maximum of 5 items per extraction. Prefer quality over quantity."#;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KnowledgeItem {
+    pub kind: String,
+    pub content: String,
+    #[serde(default)]
+    pub definition: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KnowledgeExtractionResult {
+    pub items: Vec<KnowledgeItem>,
+}
+
+/// Build the knowledge extraction prompt from screen context.
+pub fn build_knowledge_prompt(
+    language: &str,
+    ctx: &ScreenContext,
+    analysis_context: &str,
+) -> String {
+    let mut parts = Vec::new();
+
+    match language {
+        "en" => parts.push("Respond in English.".to_string()),
+        _ => parts.push("请用中文回复。".to_string()),
+    }
+
+    parts.push(format!("[Current Activity]\n{}", analysis_context));
+
+    if let Some(ref ax) = ctx.ax_text {
+        let truncated = if ax.len() > 3000 { &ax[..3000] } else { ax };
+        parts.push(format!("[Screen Text]\n{}", truncated));
+    }
+
+    if let Some(ref sel) = ctx.selected_text {
+        parts.push(format!("[Selected Text]\n{}", sel));
+    }
+
+    if let Some(ref url) = ctx.url {
+        parts.push(format!("[Source URL]\n{}", url));
+    }
+
+    parts.push(KNOWLEDGE_EXTRACTION_PROMPT.to_string());
+    parts.join("\n\n")
 }

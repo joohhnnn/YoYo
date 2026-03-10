@@ -5,7 +5,7 @@ import { register } from "@tauri-apps/plugin-global-shortcut";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
-import type { AnalysisResult, AppSwitchEvent, BubbleState, IntentResult, PlanStep, Settings, SuggestedAction } from "./types";
+import type { AnalysisResult, AppSwitchEvent, BubbleState, IntentResult, KnowledgeMetadata, KnowledgeRecord, PlanStep, Settings, SuggestedAction } from "./types";
 
 export default function BubbleApp() {
   const [state, setState] = useState<BubbleState>("ambient");
@@ -26,6 +26,10 @@ export default function BubbleApp() {
   const [showTeachMe, setShowTeachMe] = useState(false);
   const [workflowName, setWorkflowName] = useState("");
   const [feedbackGiven, setFeedbackGiven] = useState(false);
+  const [hasNudge, setHasNudge] = useState(false);
+  const [nudgeItem, setNudgeItem] = useState<KnowledgeRecord | null>(null);
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [showAnswer, setShowAnswer] = useState(false);
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -114,8 +118,23 @@ export default function BubbleApp() {
       setOpacity(event.payload);
     });
 
+    const unlistenNudge = listen<number>("nudge-available", async () => {
+      try {
+        const due = await invoke<KnowledgeRecord[]>("get_due_knowledge", { limit: 1 });
+        if (due.length > 0) {
+          setNudgeItem(due[0]);
+          setHasNudge(true);
+        }
+      } catch { /* ignore */ }
+    });
+
+    // Check for due knowledge on mount
+    invoke<KnowledgeRecord[]>("get_due_knowledge", { limit: 1 })
+      .then((due) => { if (due.length > 0) { setNudgeItem(due[0]); setHasNudge(true); } })
+      .catch(() => {});
+
     return () => {
-      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenIntent, unlistenOpacity].forEach(
+      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenIntent, unlistenOpacity, unlistenNudge].forEach(
         (u) => u.then((fn) => fn())
       );
     };
@@ -161,6 +180,8 @@ export default function BubbleApp() {
     setShowTeachMe(false);
     setWorkflowName("");
     setFeedbackGiven(false);
+    setShowQuiz(false);
+    setShowAnswer(false);
     setError(null);
     clearDismissTimer();
   };
@@ -322,6 +343,31 @@ export default function BubbleApp() {
     await invoke("feedback_execution", { id: executionId, feedback }).catch(() => {});
   };
 
+  const handleOpenQuiz = () => {
+    setShowQuiz(true);
+    setShowAnswer(false);
+    setState("active");
+    clearDismissTimer();
+  };
+
+  const handleReviewKnowledge = async (success: boolean) => {
+    if (!nudgeItem) return;
+    try {
+      await invoke("review_knowledge", { id: nudgeItem.id, success });
+    } catch { /* ignore */ }
+    setShowQuiz(false);
+    setShowAnswer(false);
+    setHasNudge(false);
+    setNudgeItem(null);
+    goAmbient();
+  };
+
+  const handleDismissNudge = () => {
+    setShowQuiz(false);
+    setShowAnswer(false);
+    setHasNudge(false);
+  };
+
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
     setActionDone(true);
@@ -347,14 +393,18 @@ export default function BubbleApp() {
   if (state === "ambient") {
     return (
       <div
-        className="w-12 h-12 flex items-center justify-center cursor-pointer"
-        onClick={() => setState("active")}
+        className="w-12 h-12 flex items-center justify-center cursor-pointer relative"
+        onClick={() => hasNudge ? handleOpenQuiz() : setState("active")}
         title="YoYo"
       >
         <div
           className="dot-breathing w-3 h-3 rounded-full bg-violet-500
             shadow-[0_0_12px_rgba(139,92,246,0.6)]"
         />
+        {hasNudge && (
+          <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-400
+            shadow-[0_0_6px_rgba(96,165,250,0.6)] animate-pulse" />
+        )}
       </div>
     );
   }
@@ -416,8 +466,51 @@ export default function BubbleApp() {
               </div>
             )}
 
+            {/* Active state: VocabQuiz card */}
+            {state === "active" && showQuiz && nudgeItem && (() => {
+              const meta: KnowledgeMetadata = JSON.parse(nudgeItem.metadata || "{}");
+              return (
+                <div className="px-3 pb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                      {nudgeItem.kind === "vocab" ? "Vocabulary" : nudgeItem.kind === "concept" ? "Concept" : "Reading"}
+                    </span>
+                    <button onClick={handleDismissNudge} className="text-[10px] text-zinc-600 hover:text-zinc-400">
+                      Skip
+                    </button>
+                  </div>
+                  <p className="text-[14px] text-white font-medium mb-1">{nudgeItem.content}</p>
+                  <p className="text-[10px] text-zinc-600 mb-3">from {nudgeItem.source}</p>
+                  {showAnswer ? (
+                    <>
+                      <div className="bg-zinc-800/50 rounded-lg px-3 py-2 mb-3">
+                        <p className="text-[12px] text-zinc-300 leading-snug">
+                          {meta.definition || "No details available"}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleReviewKnowledge(true)}
+                          className="flex-1 text-[12px] px-3 py-1.5 rounded-lg bg-green-600/80 hover:bg-green-500 text-white transition-colors">
+                          Got it
+                        </button>
+                        <button onClick={() => handleReviewKnowledge(false)}
+                          className="flex-1 text-[12px] px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white transition-colors">
+                          Again
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <button onClick={() => setShowAnswer(true)}
+                      className="w-full text-[12px] px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white transition-colors">
+                      Show Answer
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Active state: text input + mic button */}
-            {state === "active" && (
+            {state === "active" && !showQuiz && (
               <div className="px-3 pb-3">
                 <div className="flex gap-2">
                   <input

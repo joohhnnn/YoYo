@@ -119,6 +119,54 @@ impl ScreenContext {
     }
 }
 
+/// Determine if the current context represents a learning/reading activity.
+/// Uses rules only (no AI call): deep depth + text, learning URLs, or selected text.
+pub fn is_learning_context(ctx: &ScreenContext) -> bool {
+    // Rule 1: Deep depth apps (browsers, readers) with substantial text
+    if ctx.depth == "deep" {
+        if let Some(ref ax) = ctx.ax_text {
+            if ax.len() > 300 {
+                return true;
+            }
+        }
+    }
+
+    // Rule 2: URL patterns indicating documentation/learning
+    if let Some(ref url) = ctx.url {
+        let url_lower = url.to_lowercase();
+        let learning_patterns = [
+            "docs.",
+            "documentation",
+            "/doc/",
+            "/docs/",
+            "tutorial",
+            "learn",
+            "guide",
+            "reference",
+            "api/",
+            "wiki",
+            "stackoverflow.com",
+            "mdn.",
+            "developer.",
+            "medium.com",
+            "dev.to",
+            "arxiv.org",
+        ];
+        if learning_patterns.iter().any(|p| url_lower.contains(p)) {
+            return true;
+        }
+    }
+
+    // Rule 3: User actively studying (selected text > 50 chars)
+    if let Some(ref sel) = ctx.selected_text {
+        if sel.len() > 50 {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Adaptive depth based on current app type.
 /// IDEs / terminals -> normal (read cursor area code)
 /// Browsers / readers -> deep (capture article content)

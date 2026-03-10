@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import BubbleApp from "../BubbleApp";
-import type { AnalysisResult, IntentResult } from "../types";
+import type { AnalysisResult, IntentResult, KnowledgeRecord } from "../types";
 
 // --- Test fixtures ---
 
@@ -22,6 +22,21 @@ const mockIntentResult: IntentResult = {
     { action_type: "notify", label: "Notify when done", params: { message: "React docs opened" } },
   ],
   needs_confirmation: true,
+};
+
+const mockKnowledge: KnowledgeRecord = {
+  id: 10,
+  kind: "vocab",
+  content: "useEffect",
+  source: "Chrome (https://react.dev/docs)",
+  metadata: JSON.stringify({
+    definition: "A React Hook that lets you synchronize a component with an external system",
+    review_count: 0,
+    interval_level: 0,
+    next_review: "2026-03-10 12:00:00",
+    last_reviewed: null,
+  }),
+  created_at: "2026-03-10 11:00:00",
 };
 
 const mockSettings = {
@@ -59,6 +74,10 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "feedback_execution": return Promise.resolve(null);
       case "save_workflow": return Promise.resolve(1);
       case "update_workflow_count": return Promise.resolve(null);
+      case "get_due_knowledge": return Promise.resolve([]);
+      case "review_knowledge": return Promise.resolve(null);
+      case "delete_knowledge": return Promise.resolve(null);
+      case "get_knowledge_stats": return Promise.resolve({ total: 0, due: 0 });
       default: return Promise.resolve(null);
     }
   });
@@ -754,6 +773,144 @@ describe("BubbleApp State Machine", () => {
       expect(screen.getByText("Saved workflow")).toBeInTheDocument();
       // Should NOT show "Save as workflow" since it already is one
       expect(screen.queryByText("Save as workflow")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Knowledge Nudge", () => {
+    it("shows blue dot when due knowledge exists", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([mockKnowledge]);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Blue dot should be visible (animate-pulse class)
+      const blueDot = container.querySelector(".bg-blue-400");
+      expect(blueDot).toBeTruthy();
+    });
+
+    it("clicking bubble with nudge opens quiz", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([mockKnowledge]);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click the bubble (should open quiz)
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Quiz card should show
+      expect(screen.getByText("useEffect")).toBeInTheDocument();
+      expect(screen.getByText("Vocabulary")).toBeInTheDocument();
+      expect(screen.getByText("Show Answer")).toBeInTheDocument();
+    });
+
+    it("Show Answer reveals definition", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([mockKnowledge]);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Click bubble to open quiz
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Click Show Answer
+      await act(async () => {
+        fireEvent.click(screen.getByText("Show Answer"));
+      });
+
+      expect(screen.getByText("A React Hook that lets you synchronize a component with an external system")).toBeInTheDocument();
+      expect(screen.getByText("Got it")).toBeInTheDocument();
+      expect(screen.getByText("Again")).toBeInTheDocument();
+    });
+
+    it("Got it calls review_knowledge with success", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([mockKnowledge]);
+          case "review_knowledge": return Promise.resolve(null);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Open quiz
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      // Reveal answer
+      await act(async () => {
+        fireEvent.click(screen.getByText("Show Answer"));
+      });
+
+      // Click Got it
+      await act(async () => {
+        fireEvent.click(screen.getByText("Got it"));
+      });
+
+      expect(invoke).toHaveBeenCalledWith("review_knowledge", { id: 10, success: true });
+    });
+
+    it("Skip dismisses quiz", async () => {
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([mockKnowledge]);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      const { container } = render(<BubbleApp />);
+      await flush();
+
+      // Open quiz
+      const dotContainer = container.querySelector(".w-12");
+      await act(async () => {
+        fireEvent.click(dotContainer!);
+      });
+
+      expect(screen.getByText("useEffect")).toBeInTheDocument();
+
+      // Click Skip
+      await act(async () => {
+        fireEvent.click(screen.getByText("Skip"));
+      });
+
+      // Quiz should be gone, should show input instead
+      expect(screen.queryByText("useEffect")).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Ask YoYo anything...")).toBeInTheDocument();
     });
   });
 });

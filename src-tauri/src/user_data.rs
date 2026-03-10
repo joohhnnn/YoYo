@@ -538,3 +538,155 @@ pub fn delete_workflow(id: i64) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Knowledge (vocab, reading summaries, concepts)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KnowledgeRecord {
+    pub id: i64,
+    pub kind: String,
+    pub content: String,
+    pub source: String,
+    pub metadata: String,
+    pub created_at: String,
+}
+
+/// Insert a knowledge item. Returns the new row id.
+pub fn insert_knowledge(
+    kind: &str,
+    content: &str,
+    source: &str,
+    metadata: &str,
+) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO knowledge (kind, content, source, metadata) VALUES (?1, ?2, ?3, ?4)",
+        params![kind, content, source, metadata],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Get a single knowledge item by id.
+pub fn get_knowledge(id: i64) -> Result<KnowledgeRecord, String> {
+    let conn = get_db()?;
+    conn.query_row(
+        "SELECT id, kind, content, COALESCE(source,''), COALESCE(metadata,'{}'), created_at FROM knowledge WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(KnowledgeRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                source: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Knowledge item not found: {}", e))
+}
+
+/// Get knowledge items by kind, newest first.
+pub fn get_knowledge_by_kind(kind: &str, limit: usize) -> Result<Vec<KnowledgeRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, content, COALESCE(source,''), COALESCE(metadata,'{}'), created_at
+             FROM knowledge WHERE kind = ?1 ORDER BY id DESC LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![kind, limit as i64], |row| {
+            Ok(KnowledgeRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                source: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+/// Update knowledge metadata (used for spaced repetition state).
+pub fn update_knowledge_metadata(id: i64, metadata: &str) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "UPDATE knowledge SET metadata = ?1 WHERE id = ?2",
+        params![metadata, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Delete a knowledge item.
+pub fn delete_knowledge(id: i64) -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute("DELETE FROM knowledge WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Check if a knowledge item with same kind+content already exists.
+pub fn knowledge_exists(kind: &str, content: &str) -> Result<bool, String> {
+    let conn = get_db()?;
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM knowledge WHERE kind = ?1 AND content = ?2",
+            params![kind, content],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(count > 0)
+}
+
+/// Get total knowledge count.
+pub fn get_knowledge_count() -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.query_row("SELECT COUNT(*) FROM knowledge", [], |row| row.get(0))
+        .map_err(|e| e.to_string())
+}
+
+/// Get knowledge items due for review (next_review <= now or null).
+pub fn get_due_knowledge(limit: usize) -> Result<Vec<KnowledgeRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, content, COALESCE(source,''), COALESCE(metadata,'{}'), created_at
+             FROM knowledge
+             WHERE json_extract(metadata, '$.next_review') <= datetime('now','localtime')
+                OR json_extract(metadata, '$.next_review') IS NULL
+             ORDER BY created_at ASC LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(KnowledgeRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                source: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}

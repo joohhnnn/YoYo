@@ -78,3 +78,25 @@ export interface ActivityRecord {
   updated_at: string;
 }
 
+export interface KnowledgeRecord {
+  id: number;
+  kind: "vocab" | "reading" | "concept";
+  content: string;
+  source: string;
+  metadata: string;
+  created_at: string;
+}
+
+export interface KnowledgeMetadata {
+  definition?: string;
+  review_count: number;
+  interval_level: number;
+  next_review: string | null;
+  last_reviewed: string | null;
+}
+
+export interface KnowledgeStats {
+  total: number;
+  due: number;
+}
+

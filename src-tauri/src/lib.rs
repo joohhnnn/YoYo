@@ -45,6 +45,8 @@ pub struct AppState {
     pub abort_flag: AtomicBool,
     // Active audio recording session
     pub recording: Mutex<Option<RecordingState>>,
+    // Last nudge emission time (millis) — 30min cooldown
+    pub last_nudge_time: AtomicI64,
 }
 
 pub fn run() {
@@ -62,6 +64,7 @@ pub fn run() {
             current_app_pid: AtomicI64::new(0),
             abort_flag: AtomicBool::new(false),
             recording: Mutex::new(None),
+            last_nudge_time: AtomicI64::new(0),
         })
         .setup(|app| {
             // Start window monitor
@@ -212,6 +215,32 @@ pub fn run() {
                                 Ok(_) => {}
                                 Err(e) => eprintln!("Failed to record activity: {}", e),
                             }
+
+                            // Knowledge extraction — piggyback on analysis
+                            let ctx = screen_context::capture(&app);
+                            if screen_context::is_learning_context(&ctx) {
+                                let app_clone = app.clone();
+                                let context_str = result.context.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    match extract_and_store_knowledge(
+                                        &app_clone,
+                                        &ctx,
+                                        &context_str,
+                                    )
+                                    .await
+                                    {
+                                        Ok(count) if count > 0 => {
+                                            if should_nudge(&app_clone) {
+                                                let _ = app_clone.emit("nudge-available", count);
+                                            }
+                                        }
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            eprintln!("Knowledge extraction failed: {}", e)
+                                        }
+                                    }
+                                });
+                            }
                         }
                         Err(e) => eprintln!("Auto-analysis failed: {}", e),
                     }
@@ -259,6 +288,11 @@ pub fn run() {
             commands::workflow::get_workflows,
             commands::workflow::delete_workflow,
             commands::workflow::update_workflow_count,
+            commands::knowledge::get_due_knowledge,
+            commands::knowledge::get_knowledge_by_kind,
+            commands::knowledge::review_knowledge,
+            commands::knowledge::delete_knowledge,
+            commands::knowledge::get_knowledge_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");
@@ -314,4 +348,77 @@ fn position_bubble_top_right(window: &tauri::WebviewWindow) {
         let y = 40.0; // Below menu bar
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge extraction helpers (Phase 2.2)
+// ---------------------------------------------------------------------------
+
+/// Extract knowledge from screen context and store in DB.
+/// Returns the number of items stored.
+async fn extract_and_store_knowledge(
+    app: &tauri::AppHandle,
+    ctx: &screen_context::ScreenContext,
+    analysis_context: &str,
+) -> Result<usize, String> {
+    let data = commands::settings::load_data(app);
+    let prompt = ai_engine::build_knowledge_prompt(&data.settings.language, ctx, analysis_context);
+
+    let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await?
+    } else {
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await?
+    };
+
+    let json_str = ai_engine::extract_json_block(&response);
+    let extraction: ai_engine::KnowledgeExtractionResult = serde_json::from_str(json_str)
+        .map_err(|e| format!("Failed to parse knowledge extraction: {}", e))?;
+
+    let source = format!(
+        "{} ({})",
+        ctx.app_name,
+        ctx.url.as_deref().unwrap_or("screen")
+    );
+
+    let mut stored = 0;
+    for item in &extraction.items {
+        if user_data::knowledge_exists(&item.kind, &item.content)? {
+            continue;
+        }
+
+        let now = chrono::Local::now().naive_local();
+        let next_review = now + chrono::Duration::hours(1);
+
+        let metadata = serde_json::json!({
+            "definition": item.definition,
+            "review_count": 0,
+            "interval_level": 0,
+            "next_review": next_review.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "last_reviewed": null
+        });
+
+        user_data::insert_knowledge(&item.kind, &item.content, &source, &metadata.to_string())?;
+        stored += 1;
+    }
+
+    Ok(stored)
+}
+
+/// Check if a nudge should be emitted (30min cooldown + due items exist).
+fn should_nudge(app: &tauri::AppHandle) -> bool {
+    if let Some(state) = app.try_state::<AppState>() {
+        let now = chrono_millis();
+        let last = state.last_nudge_time.load(Ordering::Relaxed);
+        let cooldown = 30 * 60 * 1000; // 30 minutes in ms
+
+        if now - last >= cooldown {
+            if let Ok(due) = user_data::get_due_knowledge(1) {
+                if !due.is_empty() {
+                    state.last_nudge_time.store(now, Ordering::Relaxed);
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
