@@ -448,7 +448,12 @@ export default function BubbleApp() {
   const animClass = prevState.current === "ambient" ? "bubble-expand" : "";
 
   return (
-    <div className={animClass} style={{ opacity }}>
+    <div
+      className={animClass}
+      style={{ opacity }}
+      onMouseEnter={clearDismissTimer}
+      onMouseLeave={() => { if (state === "done") startDismissTimer(); }}
+    >
       <div
         ref={bubbleRef}
         className="backdrop-blur-xl bg-black/70 rounded-2xl border border-white/[0.08]

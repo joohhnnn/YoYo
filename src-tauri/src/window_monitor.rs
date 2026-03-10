@@ -58,8 +58,10 @@ pub fn start_monitoring(app_handle: AppHandle) {
 
                         let pid = app.processIdentifier();
 
-                        // Skip our own app
-                        if bundle_id == "com.yoyo.app" {
+                        // Skip our own app (bundle ID in .app, name in dev mode)
+                        if bundle_id == "com.yoyo.app"
+                            || app_name.eq_ignore_ascii_case("yoyo")
+                        {
                             return;
                         }
 
