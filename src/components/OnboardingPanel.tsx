@@ -21,6 +21,7 @@ export function OnboardingPanel({ onComplete }: OnboardingPanelProps) {
     accessibility: false,
     microphone: "not_determined",
   });
+  const [micError, setMicError] = useState("");
 
   const checkPermissions = useCallback(async () => {
     const [ax, voice] = await Promise.all([
@@ -88,13 +89,14 @@ export function OnboardingPanel({ onComplete }: OnboardingPanelProps) {
         {step === "permissions" && (
           <PermissionsStep
             permissions={permissions}
+            micError={micError}
             onRequestMic={async () => {
               try {
                 await invoke("request_voice_permission");
+                setMicError("");
                 checkPermissions();
               } catch {
-                // Dev mode or permission failed — open System Settings
-                invoke("open_mic_settings").catch(() => {});
+                setMicError("Mic permission requires the built app. Run: cargo tauri build --debug");
               }
             }}
             onOpenAxSettings={() => invoke("open_ax_settings").catch(() => {})}
@@ -136,10 +138,12 @@ export function OnboardingPanel({ onComplete }: OnboardingPanelProps) {
 
 function PermissionsStep({
   permissions,
+  micError,
   onRequestMic,
   onOpenAxSettings,
 }: {
   permissions: PermissionState;
+  micError: string;
   onRequestMic: () => void;
   onOpenAxSettings: () => void;
 }) {
@@ -171,21 +175,28 @@ function PermissionsStep({
         </div>
 
         {/* Microphone */}
-        <div className="flex items-center gap-3 bg-zinc-800/50 rounded-lg px-3 py-2.5">
-          <StatusDot granted={permissions.microphone === "granted"} />
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] text-zinc-200">Microphone</p>
-            <p className="text-[10px] text-zinc-500">
-              Voice input for hands-free use
-            </p>
+        <div className="bg-zinc-800/50 rounded-lg px-3 py-2.5">
+          <div className="flex items-center gap-3">
+            <StatusDot granted={permissions.microphone === "granted"} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] text-zinc-200">Microphone</p>
+              <p className="text-[10px] text-zinc-500">
+                Voice input for hands-free use
+              </p>
+            </div>
+            {permissions.microphone !== "granted" && (
+              <button
+                onClick={onRequestMic}
+                className="text-[11px] px-2.5 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300 transition-colors flex-shrink-0"
+              >
+                Grant
+              </button>
+            )}
           </div>
-          {permissions.microphone !== "granted" && (
-            <button
-              onClick={onRequestMic}
-              className="text-[11px] px-2.5 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300 transition-colors flex-shrink-0"
-            >
-              Grant
-            </button>
+          {micError && (
+            <p className="text-[10px] text-amber-400/80 mt-1.5 ml-8">
+              {micError}
+            </p>
           )}
         </div>
       </div>
