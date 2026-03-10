@@ -265,7 +265,9 @@ pub fn run() {
 
                             // Knowledge extraction — piggyback on analysis
                             let ctx = screen_context::capture(&app);
-                            if screen_context::is_learning_context(&ctx) {
+                            let scene_data = commands::settings::load_data(&app);
+                            let scene = scene_data.settings.current_scene.clone();
+                            if screen_context::is_learning_context(&ctx, scene.as_deref()) {
                                 let app_clone = app.clone();
                                 let context_str = result.context.clone();
                                 tauri::async_runtime::spawn(async move {
@@ -273,6 +275,7 @@ pub fn run() {
                                         &app_clone,
                                         &ctx,
                                         &context_str,
+                                        scene.as_deref(),
                                     )
                                     .await
                                     {
@@ -373,6 +376,7 @@ pub fn run() {
             commands::onboarding::open_mic_settings,
             commands::audio::list_audio_devices,
             commands::settings::play_sound,
+            commands::settings::set_scene,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");
@@ -475,9 +479,11 @@ async fn extract_and_store_knowledge(
     app: &tauri::AppHandle,
     ctx: &screen_context::ScreenContext,
     analysis_context: &str,
+    current_scene: Option<&str>,
 ) -> Result<usize, String> {
     let data = commands::settings::load_data(app);
-    let prompt = ai_engine::build_knowledge_prompt(&data.settings.language, ctx, analysis_context);
+    let prompt =
+        ai_engine::build_knowledge_prompt(&data.settings.language, ctx, analysis_context, current_scene);
 
     let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
         ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await?

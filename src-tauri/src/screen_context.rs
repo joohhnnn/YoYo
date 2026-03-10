@@ -120,8 +120,20 @@ impl ScreenContext {
 }
 
 /// Determine if the current context represents a learning/reading activity.
-/// Uses rules only (no AI call): deep depth + text, learning URLs, or selected text.
-pub fn is_learning_context(ctx: &ScreenContext) -> bool {
+/// Uses rules only (no AI call): scene declaration, deep depth + text, learning URLs, or selected text.
+pub fn is_learning_context(ctx: &ScreenContext, scene: Option<&str>) -> bool {
+    // Rule 0: User has declared a learning-related scene
+    if let Some(s) = scene {
+        let s_lower = s.to_lowercase();
+        let learning_keywords = [
+            "english", "class", "learning", "reading", "study", "lesson",
+            "课", "学", "阅读", "复习",
+        ];
+        if learning_keywords.iter().any(|kw| s_lower.contains(kw)) {
+            return true;
+        }
+    }
+
     // Rule 1: Deep depth apps (browsers, readers) with substantial text
     if ctx.depth == "deep" {
         if let Some(ref ax) = ctx.ax_text {

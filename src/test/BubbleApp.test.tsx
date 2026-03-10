@@ -56,6 +56,7 @@ const mockSettings = {
   sound_enabled: true,
   bubble_x: null,
   bubble_y: null,
+  current_scene: null,
 };
 
 // --- Helpers ---

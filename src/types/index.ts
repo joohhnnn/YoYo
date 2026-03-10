@@ -62,6 +62,7 @@ export interface Settings {
   sound_enabled: boolean;
   bubble_x: number | null;
   bubble_y: number | null;
+  current_scene: string | null;
 }
 
 export interface AudioDevice {

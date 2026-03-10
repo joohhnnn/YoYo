@@ -80,6 +80,7 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
     } else {
         Some(main_quests.join("\n- "))
     };
+    let current_scene = data.settings.current_scene.as_deref();
 
     // Call AI for intent understanding
     let result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
@@ -90,6 +91,7 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            current_scene,
             &ctx,
         )
         .await
@@ -100,6 +102,7 @@ pub async fn understand_intent(app: AppHandle, user_input: String) -> Result<Int
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            current_scene,
             &ctx,
         )
         .await

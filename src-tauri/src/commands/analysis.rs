@@ -52,6 +52,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
         Some(main_quests.join("\n- "))
     };
     let has_active_quests = !main_quests.is_empty();
+    let current_scene = data.settings.current_scene.as_deref();
 
     // Step 4: Decide if screenshot is needed
     // - casual depth: no screenshot (just app tracking)
@@ -102,6 +103,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            current_scene,
             &ctx,
             is_focus_crop,
         )
@@ -113,6 +115,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             &data.settings.language,
             &recent,
             main_quest.as_deref(),
+            current_scene,
             &ctx,
             is_focus_crop,
         )
@@ -140,6 +143,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 &data.settings.language,
                 &recent,
                 main_quest.as_deref(),
+                current_scene,
                 &ctx,
                 false, // not a focus crop anymore
             )
@@ -151,6 +155,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
                 &data.settings.language,
                 &recent,
                 main_quest.as_deref(),
+                current_scene,
                 &ctx,
                 false,
             )

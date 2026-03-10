@@ -33,6 +33,8 @@ pub struct Settings {
     pub bubble_x: Option<f64>,
     #[serde(default)]
     pub bubble_y: Option<f64>,
+    #[serde(default)]
+    pub current_scene: Option<String>,
 }
 
 fn default_model() -> String {
@@ -90,6 +92,7 @@ impl Default for Settings {
             sound_enabled: true,
             bubble_x: None,
             bubble_y: None,
+            current_scene: None,
         }
     }
 }
@@ -205,6 +208,13 @@ pub fn get_context() -> Result<String, String> {
 #[tauri::command]
 pub fn save_context(content: String) -> Result<(), String> {
     user_data::write_context(&content)
+}
+
+#[tauri::command]
+pub fn set_scene(app: AppHandle, scene: Option<String>) -> Result<(), String> {
+    let mut data = load_data(&app);
+    data.settings.current_scene = scene;
+    save_data(&app, &data)
 }
 
 /// Play a macOS system sound (non-blocking).

@@ -155,6 +155,7 @@ fn build_context_sections(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
     is_focus_crop: bool,
     has_screenshot: bool,
@@ -204,6 +205,15 @@ fn build_context_sections(
         ));
     }
 
+    // Inject current scene declaration
+    if let Some(scene) = current_scene {
+        parts.push(format!(
+            "[Current Scene]\nThe user has declared they are currently: {}.\n\
+             Tailor your analysis, context description, and action suggestions to this scene.",
+            scene
+        ));
+    }
+
     // Screen context (app info, selected text, URL, AX/OCR text, open windows)
     let context_block = ctx.format_for_prompt();
     if !context_block.is_empty() {
@@ -239,6 +249,7 @@ pub fn build_full_prompt(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
     is_focus_crop: bool,
     has_screenshot: bool,
@@ -247,6 +258,7 @@ pub fn build_full_prompt(
         language,
         recent_activities,
         main_quest,
+        current_scene,
         ctx,
         is_focus_crop,
         has_screenshot,
@@ -275,10 +287,11 @@ pub fn build_intent_prompt(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> String {
     let mut parts =
-        build_context_sections(language, recent_activities, main_quest, ctx, false, false);
+        build_context_sections(language, recent_activities, main_quest, current_scene, ctx, false, false);
     parts.push(format!("[User Request]\n{}", user_input));
     parts.push(INTENT_PROMPT.to_string());
     parts.join("\n\n")
@@ -292,6 +305,7 @@ pub async fn analyze_with_cli(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
     is_focus_crop: bool,
 ) -> Result<AnalysisResult, String> {
@@ -299,6 +313,7 @@ pub async fn analyze_with_cli(
         language,
         recent_activities,
         main_quest,
+        current_scene,
         ctx,
         is_focus_crop,
         screenshot_path.is_some(),
@@ -352,6 +367,7 @@ pub async fn analyze_with_api(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
     is_focus_crop: bool,
 ) -> Result<AnalysisResult, String> {
@@ -359,6 +375,7 @@ pub async fn analyze_with_api(
         language,
         recent_activities,
         main_quest,
+        current_scene,
         ctx,
         is_focus_crop,
         screenshot_path.is_some(),
@@ -540,9 +557,10 @@ pub async fn intent_with_cli(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> Result<IntentResult, String> {
-    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, ctx);
+    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, current_scene, ctx);
 
     let output = tokio::process::Command::new("claude")
         .args([
@@ -578,9 +596,10 @@ pub async fn intent_with_api(
     language: &str,
     recent_activities: &[ActivityRecord],
     main_quest: Option<&str>,
+    current_scene: Option<&str>,
     ctx: &ScreenContext,
 ) -> Result<IntentResult, String> {
-    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, ctx);
+    let prompt = build_intent_prompt(user_input, language, recent_activities, main_quest, current_scene, ctx);
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
@@ -708,12 +727,20 @@ pub fn build_knowledge_prompt(
     language: &str,
     ctx: &ScreenContext,
     analysis_context: &str,
+    current_scene: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
 
     match language {
         "en" => parts.push("Respond in English.".to_string()),
         _ => parts.push("请用中文回复。".to_string()),
+    }
+
+    if let Some(scene) = current_scene {
+        parts.push(format!(
+            "[Current Scene]\nThe user is currently: {}. Focus extraction on content relevant to this scene.",
+            scene
+        ));
     }
 
     parts.push(format!("[Current Activity]\n{}", analysis_context));

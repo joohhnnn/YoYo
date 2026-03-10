@@ -7,6 +7,12 @@ import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
 import type { AnalysisResult, AppSwitchEvent, BubbleState, EditTrackingResult, IntentResult, KnowledgeMetadata, KnowledgeRecord, PlanStep, Settings, SuggestedAction } from "./types";
 
+const SCENE_PRESETS = [
+  { label: "English Class", value: "English Class — focus on vocabulary extraction" },
+  { label: "Code Review", value: "Code Review — focus on PR diff and code fixes" },
+  { label: "Reading / Learning", value: "Reading / Learning — extract concepts and notes" },
+];
+
 export default function BubbleApp() {
   const [state, setState] = useState<BubbleState>("ambient");
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -31,6 +37,9 @@ export default function BubbleApp() {
   const [showQuiz, setShowQuiz] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
   const [editTracking, setEditTracking] = useState<Record<number, EditTrackingResult | "checking">>({});
+  const [currentScene, setCurrentScene] = useState<string | null>(null);
+  const [showScenePicker, setShowScenePicker] = useState(false);
+  const [customSceneInput, setCustomSceneInput] = useState("");
   const { executing, execute } = useActions();
   const playSound = (sound: string) => invoke("play_sound", { sound }).catch(() => {});
   const inputRef = useRef<HTMLInputElement>(null);
@@ -74,6 +83,7 @@ export default function BubbleApp() {
   useEffect(() => {
     invoke<Settings>("get_settings").then((s) => {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
+      if (s.current_scene) setCurrentScene(s.current_scene);
     });
 
     invoke<AnalysisResult | null>("get_last_analysis").then((cached) => {
@@ -409,6 +419,19 @@ export default function BubbleApp() {
     setHasNudge(false);
   };
 
+  const handleSelectScene = (scene: string) => {
+    setCurrentScene(scene);
+    setShowScenePicker(false);
+    setCustomSceneInput("");
+    invoke("set_scene", { scene }).catch(() => {});
+  };
+
+  const handleClearScene = () => {
+    setCurrentScene(null);
+    setShowScenePicker(false);
+    invoke("set_scene", { scene: null }).catch(() => {});
+  };
+
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
     setActionDone(true);
@@ -556,9 +579,77 @@ export default function BubbleApp() {
               );
             })()}
 
-            {/* Active state: text input + mic button */}
+            {/* Active state: scene picker + text input + mic button */}
             {state === "active" && !showQuiz && (
               <div className="px-3 pb-3">
+                {/* Scene declaration */}
+                <div className="mb-2">
+                  {showScenePicker ? (
+                    <div className="space-y-1">
+                      {SCENE_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          onClick={() => handleSelectScene(preset.value)}
+                          className="w-full text-left text-[12px] px-2.5 py-1.5 rounded-lg
+                            bg-zinc-800/50 hover:bg-violet-600/30 text-zinc-300 hover:text-white
+                            transition-colors"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={customSceneInput}
+                          onChange={(e) => setCustomSceneInput(e.target.value)}
+                          placeholder="Custom scene..."
+                          className="flex-1 bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-2.5 py-1.5
+                            text-[12px] text-white placeholder-zinc-500 outline-none
+                            focus:border-violet-500/50 transition-colors"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && customSceneInput.trim()) {
+                              handleSelectScene(customSceneInput.trim());
+                            }
+                            if (e.key === "Escape") setShowScenePicker(false);
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => setShowScenePicker(false)}
+                          className="text-[10px] text-zinc-500 hover:text-zinc-300 px-1.5"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : currentScene ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setShowScenePicker(true)}
+                        className="flex items-center gap-1.5 text-[11px] text-violet-400/80
+                          bg-violet-500/10 px-2 py-1 rounded-lg hover:bg-violet-500/20 transition-colors"
+                      >
+                        <span className="text-[10px]">📍</span>
+                        <span className="truncate max-w-[180px]">
+                          {SCENE_PRESETS.find((p) => p.value === currentScene)?.label || currentScene}
+                        </span>
+                      </button>
+                      <button
+                        onClick={handleClearScene}
+                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowScenePicker(true)}
+                      className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                    >
+                      Set scene...
+                    </button>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <input
                     ref={inputRef}
