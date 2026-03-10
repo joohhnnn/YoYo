@@ -142,7 +142,7 @@ pub fn run() {
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        toggle_settings(&handle);
+                        show_settings_centered(&handle);
                     });
                 }
             }
@@ -384,18 +384,25 @@ fn chrono_millis() -> i64 {
         .as_millis() as i64
 }
 
-/// Toggle the settings window (tray icon click).
-fn toggle_settings(app: &tauri::AppHandle) {
+/// Position the window near the tray icon, falling back to screen center.
+fn move_window_near_tray(window: &tauri::WebviewWindow) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let w = AssertUnwindSafe(window);
+    if catch_unwind(move || {
+        let _ = w.move_window(Position::TrayBottomCenter);
+    })
+    .is_err()
+    {
+        let _ = window.move_window(Position::Center);
+    }
+}
+
+/// Create or get the settings window (shared by toggle and onboarding).
+fn get_or_create_settings(app: &tauri::AppHandle) -> tauri::WebviewWindow {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
-        } else {
-            let _ = window.move_window(Position::TrayBottomCenter);
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
+        window
     } else {
-        let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("YoYo Settings")
             .inner_size(320.0, 400.0)
             .resizable(false)
@@ -404,12 +411,28 @@ fn toggle_settings(app: &tauri::AppHandle) {
             .visible(false)
             .skip_taskbar(true)
             .build()
-            .expect("Failed to create settings window");
+            .expect("Failed to create settings window")
+    }
+}
 
-        let _ = window.move_window(Position::TrayBottomCenter);
+/// Toggle the settings window (tray icon click).
+fn toggle_settings(app: &tauri::AppHandle) {
+    let window = get_or_create_settings(app);
+    if window.is_visible().unwrap_or(false) {
+        let _ = window.hide();
+    } else {
+        move_window_near_tray(&window);
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Show the settings window centered (for onboarding, before any tray click).
+fn show_settings_centered(app: &tauri::AppHandle) {
+    let window = get_or_create_settings(app);
+    let _ = window.move_window(Position::Center);
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 /// Bubble is always visible — this is now a no-op.
