@@ -53,3 +53,11 @@ pub fn delete_workflow(id: i64) -> Result<(), String> {
 pub fn update_workflow_count(id: i64, success: bool) -> Result<(), String> {
     user_data::increment_workflow_count(id, success)
 }
+
+/// Get recent executions (newest first).
+#[tauri::command]
+pub fn get_recent_executions(
+    limit: Option<usize>,
+) -> Result<Vec<user_data::ExecutionRecord>, String> {
+    user_data::get_recent_executions(limit.unwrap_or(20))
+}

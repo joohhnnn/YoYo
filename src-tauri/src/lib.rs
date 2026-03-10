@@ -301,6 +301,7 @@ pub fn run() {
             commands::workflow::get_workflows,
             commands::workflow::delete_workflow,
             commands::workflow::update_workflow_count,
+            commands::workflow::get_recent_executions,
             commands::knowledge::get_due_knowledge,
             commands::knowledge::get_knowledge_by_kind,
             commands::knowledge::review_knowledge,

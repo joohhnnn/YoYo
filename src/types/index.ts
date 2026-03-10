@@ -112,3 +112,26 @@ export interface EditTrackingResult {
   reason?: string;
 }
 
+export interface WorkflowRecord {
+  id: number;
+  name: string;
+  trigger_context: string;
+  steps_json: string;
+  success_count: number;
+  fail_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExecutionRecord {
+  id: number;
+  workflow_id: number | null;
+  input_text: string | null;
+  plan_json: string | null;
+  result_json: string | null;
+  status: string;
+  user_feedback: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+

@@ -81,6 +81,7 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "delete_knowledge": return Promise.resolve(null);
       case "get_knowledge_stats": return Promise.resolve({ total: 0, due: 0 });
       case "check_inserted_text": return Promise.resolve({ found: true, reverted: false });
+      case "get_recent_executions": return Promise.resolve([]);
       default: return Promise.resolve(null);
     }
   });

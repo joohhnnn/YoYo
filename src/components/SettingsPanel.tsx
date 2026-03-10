@@ -3,6 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, saveSettings } from "../services/storage";
 import { getProfile, saveProfile, getContext, saveContext } from "../services/userdata";
+import { HistoryPanel } from "./HistoryPanel";
 import type { AudioDevice, Settings } from "../types";
 
 const MODEL_OPTIONS = [
@@ -28,7 +29,7 @@ const PRESET_OPTIONS = [
   },
 ];
 
-type Tab = "settings" | "profile" | "context";
+type Tab = "settings" | "profile" | "context" | "history";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -126,17 +127,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
         <div className="flex items-center gap-1">
-          {(["settings", "profile", "context"] as Tab[]).map((t) => (
+          {(["settings", "profile", "context", "history"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
                 tab === t
                   ? "bg-zinc-700 text-white"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
-              {t === "settings" ? "Settings" : t === "profile" ? "Profile" : "Context"}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -409,6 +410,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </p>
           </SettingRow>
         </div>
+      ) : tab === "history" ? (
+        <HistoryPanel />
       ) : (
         /* Profile / Context editor */
         <div className="flex-1 min-h-0 flex flex-col">
@@ -421,7 +424,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           </div>
           <textarea
             value={tab === "profile" ? profileText : contextText}
-            onChange={(e) => handleEditorChange(e.target.value, tab)}
+            onChange={(e) => handleEditorChange(e.target.value, tab as "profile" | "context")}
             className="flex-1 mx-3 mb-2 p-2 text-[11px] leading-relaxed bg-zinc-800 border border-zinc-700
               rounded text-zinc-200 placeholder-zinc-600 outline-none resize-none
               focus:border-violet-500/50 font-mono"
