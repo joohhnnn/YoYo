@@ -58,6 +58,8 @@ pub async fn execute_action(
                 .output()
                 .map_err(|e| format!("Failed to open app: {}", e))?;
             if output.status.success() {
+                // Give the app time to activate and focus before next step
+                std::thread::sleep(std::time::Duration::from_millis(800));
                 Ok(())
             } else {
                 Err(String::from_utf8_lossy(&output.stderr).to_string())
@@ -154,6 +156,9 @@ pub async fn execute_action(
                 .write_all(text.as_bytes())
                 .map_err(|e| format!("Failed to write to pbcopy: {}", e))?;
             child.wait().map_err(|e| e.to_string())?;
+
+            // Brief pause to ensure clipboard is ready
+            std::thread::sleep(std::time::Duration::from_millis(100));
 
             // Simulate Cmd+V paste via osascript (controlled action, not user input)
             let output = std::process::Command::new("osascript")
