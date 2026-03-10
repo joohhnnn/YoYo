@@ -117,7 +117,7 @@ pub fn start_recording(app: AppHandle) -> Result<String, String> {
     // Build input stream
     let writer_clone = writer.clone();
     let err_fn = |err: cpal::StreamError| {
-        eprintln!("Audio stream error: {}", err);
+        log::error!("Audio stream error: {}", err);
     };
 
     let stream = device

@@ -53,6 +53,9 @@ const mockSettings = {
   app_blacklist: [],
   onboarding_completed: true,
   preferred_mic_device: "",
+  sound_enabled: true,
+  bubble_x: null,
+  bubble_y: null,
 };
 
 // --- Helpers ---
@@ -82,6 +85,7 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "get_knowledge_stats": return Promise.resolve({ total: 0, due: 0 });
       case "check_inserted_text": return Promise.resolve({ found: true, reverted: false });
       case "get_recent_executions": return Promise.resolve([]);
+      case "play_sound": return Promise.resolve(null);
       default: return Promise.resolve(null);
     }
   });

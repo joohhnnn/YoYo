@@ -72,7 +72,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
             match focus_capture::capture_focus_area() {
                 Ok(capture) => (Some(capture.image_path), true),
                 Err(e) => {
-                    eprintln!("Focus capture failed, trying full: {}", e);
+                    log::warn!("Focus capture failed, trying full: {}", e);
                     (Some(screenshot::capture_screen()?), false)
                 }
             }
@@ -121,7 +121,7 @@ pub async fn do_analyze(app: &AppHandle) -> Result<AnalysisResult, String> {
 
     // Step 7: Second round if AI needs full context and we used focus crop
     if is_focus_crop && result.need_full_context == Some(true) {
-        eprintln!("AI requested full context — performing second-round full screen analysis");
+        log::info!("AI requested full context — performing second-round full screen analysis");
         let full_screenshot = screenshot::capture_screen()?;
 
         // Try OCR on full screenshot if no AX text

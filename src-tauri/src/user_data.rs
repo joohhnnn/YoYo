@@ -163,7 +163,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("Migration 1 failed: {}", e))?;
         set_schema_version(conn, 1)?;
-        eprintln!("DB migration 1 applied: baseline tables");
+        log::info!("DB migration 1 applied: baseline tables");
     }
 
     // Migration 2: V2 tables (workflows, executions, knowledge)
@@ -214,7 +214,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("Migration 2 failed: {}", e))?;
         set_schema_version(conn, 2)?;
-        eprintln!("DB migration 2 applied: V2 tables (workflows, executions, knowledge)");
+        log::info!("DB migration 2 applied: V2 tables (workflows, executions, knowledge)");
     }
 
     Ok(())
@@ -656,6 +656,22 @@ pub fn get_knowledge_count() -> Result<i64, String> {
     let conn = get_db()?;
     conn.query_row("SELECT COUNT(*) FROM knowledge", [], |row| row.get(0))
         .map_err(|e| e.to_string())
+}
+
+/// Prune old activity_log and execution records to keep disk usage bounded.
+pub fn cleanup_old_data() -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "DELETE FROM activity_log WHERE id NOT IN (SELECT id FROM activity_log ORDER BY id DESC LIMIT 500)",
+        [],
+    )
+    .map_err(|e| format!("cleanup activity_log: {}", e))?;
+    conn.execute(
+        "DELETE FROM executions WHERE id NOT IN (SELECT id FROM executions ORDER BY id DESC LIMIT 200)",
+        [],
+    )
+    .map_err(|e| format!("cleanup executions: {}", e))?;
+    Ok(())
 }
 
 /// Get knowledge items due for review (next_review <= now or null).

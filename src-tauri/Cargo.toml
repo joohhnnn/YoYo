@@ -35,3 +35,5 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 uuid = { version = "1.22.0", features = ["v4"] }
 cpal = "0.15"
 hound = "3.5"
+log = "0.4"
+simplelog = "0.12"

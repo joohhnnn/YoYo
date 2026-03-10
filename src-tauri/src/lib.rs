@@ -50,6 +50,28 @@ pub struct AppState {
 }
 
 pub fn run() {
+    // Initialize file logger to ~/.yoyo/yoyo.log
+    if let Ok(dir) = user_data::yoyo_dir() {
+        let log_path = dir.join("yoyo.log");
+        // Truncate if over 1 MB
+        if let Ok(meta) = std::fs::metadata(&log_path) {
+            if meta.len() > 1_048_576 {
+                let _ = std::fs::write(&log_path, "");
+            }
+        }
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = simplelog::WriteLogger::init(
+                simplelog::LevelFilter::Info,
+                simplelog::Config::default(),
+                file,
+            );
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -73,7 +95,12 @@ pub fn run() {
 
             // Initialize ~/.yoyo/ directory, profile.md, context.md, yoyo.db
             if let Err(e) = user_data::ensure_initialized() {
-                eprintln!("Warning: failed to initialize user data: {}", e);
+                log::warn!("Failed to initialize user data: {}", e);
+            }
+
+            // Prune old activity/execution records on startup
+            if let Err(e) = user_data::cleanup_old_data() {
+                log::warn!("Disk cleanup failed: {}", e);
             }
 
             // Set activation policy to Accessory (hide from Dock)
@@ -98,8 +125,15 @@ pub fn run() {
                     .build()
                     .expect("Failed to create bubble window");
 
-            // Position bubble at top-right
-            position_bubble_top_right(&bubble);
+            // Restore saved position or default to top-right
+            {
+                let data = commands::settings::load_data(&app.handle());
+                if let (Some(x), Some(y)) = (data.settings.bubble_x, data.settings.bubble_y) {
+                    let _ = bubble.set_position(LogicalPosition::new(x, y));
+                } else {
+                    position_bubble_top_right(&bubble);
+                }
+            }
 
             // Auto-show onboarding on first run
             {
@@ -179,7 +213,7 @@ pub fn run() {
                         }
                         Ok(false) => {} // Screen is calm, proceed
                         Err(e) => {
-                            eprintln!("Screen change detection failed, proceeding: {}", e);
+                            log::warn!("Screen change detection failed, proceeding: {}", e);
                         }
                     }
 
@@ -203,6 +237,7 @@ pub fn run() {
                                 *cache = Some(result.clone());
                             }
                             let _ = app.emit("analysis-complete", &result);
+                            play_sound_if_enabled(&app, "Tink");
 
                             // Record activity to observation log
                             let app_name = state
@@ -225,7 +260,7 @@ pub fn run() {
                                 &actions_json,
                             ) {
                                 Ok(_) => {}
-                                Err(e) => eprintln!("Failed to record activity: {}", e),
+                                Err(e) => log::error!("Failed to record activity: {}", e),
                             }
 
                             // Knowledge extraction — piggyback on analysis
@@ -248,15 +283,41 @@ pub fn run() {
                                         }
                                         Ok(_) => {}
                                         Err(e) => {
-                                            eprintln!("Knowledge extraction failed: {}", e)
+                                            log::error!("Knowledge extraction failed: {}", e)
                                         }
                                     }
                                 });
                             }
                         }
-                        Err(e) => eprintln!("Auto-analysis failed: {}", e),
+                        Err(e) => {
+                            log::error!("Auto-analysis failed: {}", e);
+                            play_sound_if_enabled(&app, "Basso");
+                        }
                     }
                 });
+            });
+
+            // Save bubble position on move (throttled)
+            let move_handle = app.handle().clone();
+            let last_save = std::sync::Arc::new(AtomicI64::new(0));
+            bubble.on_window_event(move |event| {
+                if let tauri::WindowEvent::Moved(pos) = event {
+                    let now = chrono_millis();
+                    let prev = last_save.load(Ordering::Relaxed);
+                    if now - prev < 500 {
+                        return; // throttle: at most every 500ms
+                    }
+                    last_save.store(now, Ordering::Relaxed);
+                    let x = pos.x as f64;
+                    let y = pos.y as f64;
+                    let app = move_handle.clone();
+                    std::thread::spawn(move || {
+                        let mut data = commands::settings::load_data(&app);
+                        data.settings.bubble_x = Some(x);
+                        data.settings.bubble_y = Some(y);
+                        let _ = commands::settings::save_data(&app, &data);
+                    });
+                }
             });
 
             Ok(())
@@ -310,6 +371,7 @@ pub fn run() {
             commands::onboarding::check_ax_permission,
             commands::onboarding::open_ax_settings,
             commands::audio::list_audio_devices,
+            commands::settings::play_sound,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");
@@ -355,6 +417,18 @@ fn toggle_settings(app: &tauri::AppHandle) {
 pub fn show_bubble(_app: &tauri::AppHandle) {
     // Bubble is pre-created and always visible.
     // State transitions are handled by React via events.
+}
+
+/// Play a macOS system sound if sound_enabled is true.
+fn play_sound_if_enabled(app: &tauri::AppHandle, sound: &str) {
+    let data = commands::settings::load_data(app);
+    if !data.settings.sound_enabled {
+        return;
+    }
+    let path = format!("/System/Library/Sounds/{}.aiff", sound);
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("afplay").arg(&path).output();
+    });
 }
 
 fn position_bubble_top_right(window: &tauri::WebviewWindow) {

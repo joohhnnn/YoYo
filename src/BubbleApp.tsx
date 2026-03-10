@@ -32,6 +32,7 @@ export default function BubbleApp() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [editTracking, setEditTracking] = useState<Record<number, EditTrackingResult | "checking">>({});
   const { executing, execute } = useActions();
+  const playSound = (sound: string) => invoke("play_sound", { sound }).catch(() => {});
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
   const prevState = useRef<BubbleState>("ambient");
@@ -331,6 +332,7 @@ export default function BubbleApp() {
         setFailedStep(i);
         setExecutingPlan(false);
         setCurrentStep(-1);
+        playSound("Basso");
         if (execId) {
           invoke("complete_execution", { id: execId, status: "failed", resultJson: String(e) }).catch(() => {});
         }
@@ -343,6 +345,7 @@ export default function BubbleApp() {
     setExecutingPlan(false);
     setCurrentStep(-1);
     setActionDone(true);
+    playSound("Pop");
     setTimeout(() => setActionDone(false), 1200);
     if (execId) {
       invoke("complete_execution", { id: execId, status: "success" }).catch(() => {});
@@ -402,6 +405,7 @@ export default function BubbleApp() {
   const handleExecute = async (action: SuggestedAction) => {
     await execute(action);
     setActionDone(true);
+    playSound("Pop");
     setTimeout(() => setActionDone(false), 1200);
   };
 

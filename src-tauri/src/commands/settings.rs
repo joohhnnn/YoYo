@@ -27,6 +27,12 @@ pub struct Settings {
     pub onboarding_completed: bool,
     #[serde(default)]
     pub preferred_mic_device: String,
+    #[serde(default = "default_sound_enabled")]
+    pub sound_enabled: bool,
+    #[serde(default)]
+    pub bubble_x: Option<f64>,
+    #[serde(default)]
+    pub bubble_y: Option<f64>,
 }
 
 fn default_model() -> String {
@@ -47,6 +53,10 @@ fn default_auto_analyze() -> bool {
 
 fn default_analysis_depth() -> String {
     "normal".to_string()
+}
+
+fn default_sound_enabled() -> bool {
+    true
 }
 
 fn default_app_blacklist() -> Vec<String> {
@@ -77,6 +87,9 @@ impl Default for Settings {
             app_blacklist: default_app_blacklist(),
             onboarding_completed: false,
             preferred_mic_device: String::new(),
+            sound_enabled: true,
+            bubble_x: None,
+            bubble_y: None,
         }
     }
 }
@@ -192,4 +205,17 @@ pub fn get_context() -> Result<String, String> {
 #[tauri::command]
 pub fn save_context(content: String) -> Result<(), String> {
     user_data::write_context(&content)
+}
+
+/// Play a macOS system sound (non-blocking).
+#[tauri::command]
+pub fn play_sound(app: AppHandle, sound: String) {
+    let data = load_data(&app);
+    if !data.settings.sound_enabled {
+        return;
+    }
+    let path = format!("/System/Library/Sounds/{}.aiff", sound);
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("afplay").arg(&path).output();
+    });
 }

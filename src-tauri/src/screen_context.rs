@@ -251,7 +251,7 @@ pub fn capture(app: &AppHandle) -> ScreenContext {
                 let text = if result.text.trim().is_empty() {
                     None
                 } else {
-                    eprintln!(
+                    log::info!(
                         "AX extracted {} nodes, {} chars from {}",
                         result.node_count,
                         result.text.len(),
@@ -262,11 +262,11 @@ pub fn capture(app: &AppHandle) -> ScreenContext {
                 (text, result.window_title, result.selected_text, result.url)
             }
             Ok(result) => {
-                eprintln!("AX returned error: {:?}", result.error);
+                log::warn!("AX returned error: {:?}", result.error);
                 (None, result.window_title, None, None)
             }
             Err(e) => {
-                eprintln!("AX extraction failed: {}", e);
+                log::warn!("AX extraction failed: {}", e);
                 (None, String::new(), None, None)
             }
         }

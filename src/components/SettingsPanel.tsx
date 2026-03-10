@@ -276,6 +276,27 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </SettingRow>
 
+          {/* Sound */}
+          <SettingRow label="Sound">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">
+                Play sound effects
+              </span>
+              <button
+                onClick={() => update({ sound_enabled: !settings.sound_enabled })}
+                className={`w-8 h-[18px] rounded-full transition-colors relative ${
+                  settings.sound_enabled ? "bg-violet-600" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
+                    settings.sound_enabled ? "left-[16px]" : "left-[2px]"
+                  }`}
+                />
+              </button>
+            </div>
+          </SettingRow>
+
           {/* Cooldown */}
           <SettingRow label="Cooldown">
             <div className="flex items-center gap-2">

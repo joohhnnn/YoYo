@@ -59,6 +59,9 @@ export interface Settings {
   app_blacklist: string[];
   onboarding_completed: boolean;
   preferred_mic_device: string;
+  sound_enabled: boolean;
+  bubble_x: number | null;
+  bubble_y: number | null;
 }
 
 export interface AudioDevice {
