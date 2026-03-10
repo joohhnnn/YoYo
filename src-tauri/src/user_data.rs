@@ -234,6 +234,21 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         log::info!("DB migration 3 applied: activity_summary table");
     }
 
+    // Migration 4: Scene sessions table for timeline tracking
+    if current < 4 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS scene_sessions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                scene_name  TEXT,
+                started_at  TEXT DEFAULT (datetime('now','localtime')),
+                ended_at    TEXT
+            );",
+        )
+        .map_err(|e| format!("Migration 4 failed: {}", e))?;
+        set_schema_version(conn, 4)?;
+        log::info!("DB migration 4 applied: scene_sessions table");
+    }
+
     Ok(())
 }
 
@@ -477,6 +492,68 @@ pub fn insert_summary(
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
+}
+
+// ---------------------------------------------------------------------------
+// Scene sessions (timeline tracking)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SceneSession {
+    pub id: i64,
+    pub scene_name: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+/// Close the current active session (set ended_at = now).
+pub fn end_current_session() -> Result<(), String> {
+    let conn = get_db()?;
+    conn.execute(
+        "UPDATE scene_sessions SET ended_at = datetime('now','localtime') WHERE ended_at IS NULL",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Start a new scene session. scene_name = None means observation mode.
+pub fn start_scene_session(scene_name: Option<&str>) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO scene_sessions (scene_name) VALUES (?1)",
+        params![scene_name],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Get recent scene sessions (newest first).
+pub fn get_scene_sessions(limit: usize) -> Result<Vec<SceneSession>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, scene_name, started_at, ended_at
+             FROM scene_sessions ORDER BY id DESC LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(SceneSession {
+                id: row.get(0)?,
+                scene_name: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +870,11 @@ pub fn cleanup_old_data() -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("cleanup activity_summary: {}", e))?;
+    conn.execute(
+        "DELETE FROM scene_sessions WHERE id NOT IN (SELECT id FROM scene_sessions ORDER BY id DESC LIMIT 100)",
+        [],
+    )
+    .map_err(|e| format!("cleanup scene_sessions: {}", e))?;
     Ok(())
 }
 

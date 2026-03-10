@@ -232,14 +232,22 @@ pub fn run() {
                                 .last_analysis_time
                                 .store(chrono_millis(), Ordering::Relaxed);
 
-                            // Cache + broadcast (bubble is always visible, React handles state)
+                            // Load scene to determine mode
+                            let scene_data = commands::settings::load_data(&app);
+                            let scene = scene_data.settings.current_scene.clone();
+
+                            // Cache result always
                             if let Ok(mut cache) = state.last_analysis.lock() {
                                 *cache = Some(result.clone());
                             }
-                            let _ = app.emit("analysis-complete", &result);
-                            play_sound_if_enabled(&app, "Tink");
 
-                            // Record activity to observation log
+                            // Only show bubble if scene is set (observation mode = silent)
+                            if scene.is_some() {
+                                let _ = app.emit("analysis-complete", &result);
+                                play_sound_if_enabled(&app, "Tink");
+                            }
+
+                            // Record activity always (both modes)
                             let app_name = state
                                 .current_app_name
                                 .lock()
@@ -272,8 +280,6 @@ pub fn run() {
 
                             // Knowledge extraction — piggyback on analysis
                             let ctx = screen_context::capture(&app);
-                            let scene_data = commands::settings::load_data(&app);
-                            let scene = scene_data.settings.current_scene.clone();
                             if screen_context::is_learning_context(&ctx, scene.as_deref()) {
                                 let app_clone = app.clone();
                                 let context_str = result.context.clone();

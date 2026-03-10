@@ -212,6 +212,10 @@ pub fn save_context(content: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_scene(app: AppHandle, scene: Option<String>) -> Result<(), String> {
+    // Close previous session and start new one
+    user_data::end_current_session()?;
+    user_data::start_scene_session(scene.as_deref())?;
+    // Persist to settings
     let mut data = load_data(&app);
     data.settings.current_scene = scene;
     save_data(&app, &data)

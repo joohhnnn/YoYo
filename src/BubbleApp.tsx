@@ -83,7 +83,12 @@ export default function BubbleApp() {
   useEffect(() => {
     invoke<Settings>("get_settings").then((s) => {
       if (s.bubble_opacity !== undefined) setOpacity(s.bubble_opacity);
-      if (s.current_scene) setCurrentScene(s.current_scene);
+      if (s.current_scene) {
+        setCurrentScene(s.current_scene);
+      } else {
+        // No scene set — auto-show scene picker on startup
+        setShowScenePicker(true);
+      }
     });
 
     invoke<AnalysisResult | null>("get_last_analysis").then((cached) => {
@@ -621,6 +626,19 @@ export default function BubbleApp() {
                           Cancel
                         </button>
                       </div>
+                      {!currentScene && (
+                        <button
+                          onClick={() => {
+                            setShowScenePicker(false);
+                            invoke("set_scene", { scene: null });
+                          }}
+                          className="w-full text-left text-[11px] px-2.5 py-1.5 rounded-lg
+                            text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30
+                            transition-colors italic"
+                        >
+                          Skip — just observe
+                        </button>
+                      )}
                     </div>
                   ) : currentScene ? (
                     <div className="flex items-center gap-1.5">
