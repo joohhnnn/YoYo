@@ -210,6 +210,13 @@ pub fn save_context(content: String) -> Result<(), String> {
 /// Play a macOS system sound (non-blocking).
 #[tauri::command]
 pub fn play_sound(app: AppHandle, sound: String) {
+    // Sanitize: only allow alphanumeric, underscore, hyphen (no path traversal)
+    if !sound
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return;
+    }
     let data = load_data(&app);
     if !data.settings.sound_enabled {
         return;

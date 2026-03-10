@@ -129,7 +129,7 @@ pub fn run() {
             {
                 let data = commands::settings::load_data(&app.handle());
                 if let (Some(x), Some(y)) = (data.settings.bubble_x, data.settings.bubble_y) {
-                    let _ = bubble.set_position(LogicalPosition::new(x, y));
+                    let _ = bubble.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                 } else {
                     position_bubble_top_right(&bubble);
                 }
