@@ -93,7 +93,8 @@ export function OnboardingPanel({ onComplete }: OnboardingPanelProps) {
                 await invoke("request_voice_permission");
                 checkPermissions();
               } catch {
-                /* ignore */
+                // Dev mode or permission failed — open System Settings
+                invoke("open_mic_settings").catch(() => {});
               }
             }}
             onOpenAxSettings={() => invoke("open_ax_settings").catch(() => {})}

@@ -370,6 +370,7 @@ pub fn run() {
             commands::knowledge::get_knowledge_stats,
             commands::onboarding::check_ax_permission,
             commands::onboarding::open_ax_settings,
+            commands::onboarding::open_mic_settings,
             commands::audio::list_audio_devices,
             commands::settings::play_sound,
         ])

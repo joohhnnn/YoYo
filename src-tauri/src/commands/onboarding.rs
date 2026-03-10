@@ -9,3 +9,11 @@ pub fn check_ax_permission() -> bool {
 pub fn open_ax_settings() {
     crate::accessibility::open_ax_settings();
 }
+
+/// Open macOS System Settings > Microphone privacy pane.
+#[tauri::command]
+pub fn open_mic_settings() {
+    let _ = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        .spawn();
+}
