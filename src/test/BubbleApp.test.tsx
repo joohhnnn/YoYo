@@ -51,6 +51,7 @@ const mockSettings = {
   auto_analyze: true,
   analysis_depth: "normal" as const,
   app_blacklist: [],
+  onboarding_completed: true,
 };
 
 // --- Helpers ---

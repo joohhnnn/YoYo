@@ -101,6 +101,18 @@ pub fn run() {
             // Position bubble at top-right
             position_bubble_top_right(&bubble);
 
+            // Auto-show onboarding on first run
+            {
+                let data = commands::settings::load_data(&app.handle());
+                if !data.settings.onboarding_completed {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        toggle_settings(&handle);
+                    });
+                }
+            }
+
             // Listen for app-switch events and auto-analyze from Rust side.
             // Uses debounce counter: only the latest switch triggers analysis after settling.
             let app_for_switch = app.handle().clone();
@@ -294,6 +306,8 @@ pub fn run() {
             commands::knowledge::review_knowledge,
             commands::knowledge::delete_knowledge,
             commands::knowledge::get_knowledge_stats,
+            commands::onboarding::check_ax_permission,
+            commands::onboarding::open_ax_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running YoYo");

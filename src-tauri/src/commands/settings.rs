@@ -23,6 +23,8 @@ pub struct Settings {
     pub analysis_depth: String, // "casual" | "normal" | "deep"
     #[serde(default = "default_app_blacklist")]
     pub app_blacklist: Vec<String>,
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 fn default_model() -> String {
@@ -71,6 +73,7 @@ impl Default for Settings {
             auto_analyze: true,
             analysis_depth: "normal".to_string(),
             app_blacklist: default_app_blacklist(),
+            onboarding_completed: false,
         }
     }
 }

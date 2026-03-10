@@ -15,6 +15,22 @@ pub struct AccessibilityResult {
     pub url: Option<String>,
 }
 
+/// Check if the app has Accessibility permission.
+pub fn is_ax_trusted() -> bool {
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+    }
+    unsafe { AXIsProcessTrusted() }
+}
+
+/// Open System Preferences > Accessibility pane.
+pub fn open_ax_settings() {
+    let _ = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        .spawn();
+}
+
 /// Extract text from the accessibility tree of the given process.
 /// Returns the extracted text, or an error if AX is not available.
 pub fn extract_text(pid: i32) -> Result<AccessibilityResult, String> {

@@ -57,6 +57,7 @@ export interface Settings {
   auto_analyze: boolean;
   analysis_depth: "casual" | "normal" | "deep";
   app_blacklist: string[];
+  onboarding_completed: boolean;
 }
 
 export interface AppSwitchEvent {
