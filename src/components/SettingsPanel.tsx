@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getSettings, saveSettings } from "../services/storage";
 import { getProfile, saveProfile, getContext, saveContext } from "../services/userdata";
-import type { Settings } from "../types";
+import type { AudioDevice, Settings } from "../types";
 
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5", desc: "Fast" },
@@ -43,9 +44,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [contextText, setContextText] = useState("");
   const [editorDirty, setEditorDirty] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
+  const [blacklistInput, setBlacklistInput] = useState("");
 
   useEffect(() => {
     getSettings().then(setSettings);
+    invoke<AudioDevice[]>("list_audio_devices")
+      .then(setAudioDevices)
+      .catch(() => {});
   }, []);
 
   // Load profile/context when switching tabs
@@ -69,6 +75,32 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
     setSaved(true);
     setTimeout(() => setSaved(false), 800);
+  };
+
+  const handleShortcutChange = async (key: "shortcut_toggle" | "shortcut_analyze", value: string) => {
+    if (!settings) return;
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    await saveSettings(next);
+    await emit("shortcuts-changed", {
+      toggle: next.shortcut_toggle,
+      analyze: next.shortcut_analyze,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 800);
+  };
+
+  const addToBlacklist = async () => {
+    if (!settings || !blacklistInput.trim()) return;
+    const id = blacklistInput.trim();
+    if (settings.app_blacklist.includes(id)) return;
+    await update({ app_blacklist: [...settings.app_blacklist, id] });
+    setBlacklistInput("");
+  };
+
+  const removeFromBlacklist = async (id: string) => {
+    if (!settings) return;
+    await update({ app_blacklist: settings.app_blacklist.filter((b) => b !== id) });
   };
 
   // Auto-save profile/context with debounce
@@ -291,6 +323,90 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 {Math.round(settings.bubble_opacity * 100)}%
               </span>
             </div>
+          </SettingRow>
+
+          {/* Hotkeys */}
+          <SettingRow label="Hotkeys">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-500 w-14">Toggle</span>
+                <input
+                  value={settings.shortcut_toggle}
+                  onChange={(e) => handleShortcutChange("shortcut_toggle", e.target.value)}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1
+                    text-[11px] text-white outline-none focus:border-violet-500/50 font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-500 w-14">Analyze</span>
+                <input
+                  value={settings.shortcut_analyze}
+                  onChange={(e) => handleShortcutChange("shortcut_analyze", e.target.value)}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1
+                    text-[11px] text-white outline-none focus:border-violet-500/50 font-mono"
+                />
+              </div>
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-1">
+              Format: CmdOrCtrl+Shift+Key
+            </p>
+          </SettingRow>
+
+          {/* App Blacklist */}
+          <SettingRow label="App Blacklist">
+            <div className="space-y-1 max-h-24 overflow-y-auto">
+              {settings.app_blacklist.map((id) => (
+                <div key={id} className="flex items-center gap-2 bg-zinc-800 rounded px-2 py-1">
+                  <span className="flex-1 text-[10px] text-zinc-400 truncate">{id}</span>
+                  <button
+                    onClick={() => removeFromBlacklist(id)}
+                    className="text-zinc-600 hover:text-zinc-300 text-[12px] flex-shrink-0"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1 mt-1.5">
+              <input
+                value={blacklistInput}
+                onChange={(e) => setBlacklistInput(e.target.value)}
+                placeholder="com.example.app"
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1
+                  text-[10px] text-white placeholder-zinc-600 outline-none
+                  focus:border-violet-500/50"
+                onKeyDown={(e) => { if (e.key === "Enter") addToBlacklist(); }}
+              />
+              <button
+                onClick={addToBlacklist}
+                className="text-[10px] px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600
+                  text-zinc-300 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-1">
+              Apps that YoYo won't analyze (bundle IDs)
+            </p>
+          </SettingRow>
+
+          {/* Microphone Device */}
+          <SettingRow label="Microphone">
+            <select
+              value={settings.preferred_mic_device}
+              onChange={(e) => update({ preferred_mic_device: e.target.value })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1
+                text-[11px] text-white outline-none focus:border-violet-500/50
+                appearance-none cursor-pointer"
+            >
+              <option value="">System Default</option>
+              {audioDevices.map((d) => (
+                <option key={d.name} value={d.name}>{d.name}</option>
+              ))}
+            </select>
+            <p className="text-[9px] text-zinc-600 mt-1">
+              Audio input device for voice recording
+            </p>
           </SettingRow>
         </div>
       ) : (

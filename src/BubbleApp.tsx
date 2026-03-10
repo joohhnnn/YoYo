@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { register } from "@tauri-apps/plugin-global-shortcut";
+import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
@@ -35,32 +35,37 @@ export default function BubbleApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
   const prevState = useRef<BubbleState>("ambient");
+  const shortcutsRef = useRef({ toggle: "CmdOrCtrl+Shift+Y", analyze: "CmdOrCtrl+Shift+R" });
 
   // Dynamic window resize based on state
   const { bubbleRef, contentRef } = useWindowAutoResize(state);
 
-  // Register global shortcuts
-  useEffect(() => {
-    const registerShortcuts = async () => {
-      try {
-        await register("CmdOrCtrl+Shift+Y", (event) => {
-          if (event.state === "Released") return;
-          setState((s) => (s === "ambient" ? "active" : "ambient"));
-        });
-      } catch (e) {
-        console.warn("Failed to register toggle shortcut:", e);
-      }
+  // Register global shortcuts dynamically from settings
+  const registerShortcuts = async (toggle: string, analyze: string) => {
+    try {
+      await register(toggle, (event) => {
+        if (event.state === "Released") return;
+        setState((s) => (s === "ambient" ? "active" : "ambient"));
+      });
+      shortcutsRef.current.toggle = toggle;
+    } catch (e) {
+      console.warn("Failed to register toggle shortcut:", e);
+    }
+    try {
+      await register(analyze, (event) => {
+        if (event.state === "Released") return;
+        triggerAnalysis();
+      });
+      shortcutsRef.current.analyze = analyze;
+    } catch (e) {
+      console.warn("Failed to register analyze shortcut:", e);
+    }
+  };
 
-      try {
-        await register("CmdOrCtrl+Shift+R", (event) => {
-          if (event.state === "Released") return;
-          triggerAnalysis();
-        });
-      } catch (e) {
-        console.warn("Failed to register analyze shortcut:", e);
-      }
-    };
-    registerShortcuts();
+  useEffect(() => {
+    invoke<Settings>("get_settings").then((s) => {
+      registerShortcuts(s.shortcut_toggle, s.shortcut_analyze);
+    });
   }, []);
 
   // Load settings + cached result on mount
@@ -119,6 +124,12 @@ export default function BubbleApp() {
       setOpacity(event.payload);
     });
 
+    const unlistenShortcuts = listen<{ toggle: string; analyze: string }>("shortcuts-changed", async (event) => {
+      await unregister(shortcutsRef.current.toggle).catch(() => {});
+      await unregister(shortcutsRef.current.analyze).catch(() => {});
+      await registerShortcuts(event.payload.toggle, event.payload.analyze);
+    });
+
     const unlistenNudge = listen<number>("nudge-available", async () => {
       try {
         const due = await invoke<KnowledgeRecord[]>("get_due_knowledge", { limit: 1 });
@@ -135,7 +146,7 @@ export default function BubbleApp() {
       .catch(() => {});
 
     return () => {
-      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenIntent, unlistenOpacity, unlistenNudge].forEach(
+      [unlistenSwitch, unlistenProgress, unlistenAnalysis, unlistenIntent, unlistenOpacity, unlistenShortcuts, unlistenNudge].forEach(
         (u) => u.then((fn) => fn())
       );
     };

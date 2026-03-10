@@ -52,6 +52,7 @@ const mockSettings = {
   analysis_depth: "normal" as const,
   app_blacklist: [],
   onboarding_completed: true,
+  preferred_mic_device: "",
 };
 
 // --- Helpers ---

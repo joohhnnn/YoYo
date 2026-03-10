@@ -25,6 +25,8 @@ pub struct Settings {
     pub app_blacklist: Vec<String>,
     #[serde(default)]
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub preferred_mic_device: String,
 }
 
 fn default_model() -> String {
@@ -74,6 +76,7 @@ impl Default for Settings {
             analysis_depth: "normal".to_string(),
             app_blacklist: default_app_blacklist(),
             onboarding_completed: false,
+            preferred_mic_device: String::new(),
         }
     }
 }

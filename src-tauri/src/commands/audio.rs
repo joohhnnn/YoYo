@@ -3,6 +3,19 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// List available audio input devices.
+#[tauri::command]
+pub fn list_audio_devices() -> Result<Vec<serde_json::Value>, String> {
+    let host = cpal::default_host();
+    let mut devices = Vec::new();
+    for device in host.input_devices().map_err(|e| e.to_string())? {
+        if let Ok(name) = device.name() {
+            devices.push(serde_json::json!({ "name": name }));
+        }
+    }
+    Ok(devices)
+}
+
 /// Check both microphone and speech recognition permissions.
 /// Returns "granted", "denied", or "not_determined".
 #[tauri::command]
@@ -63,11 +76,24 @@ pub fn start_recording(app: AppHandle) -> Result<String, String> {
         .to_string_lossy()
         .to_string();
 
-    // Set up cpal input
+    // Set up cpal input — use preferred device if configured
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or("No input device available")?;
+    let preferred = {
+        let data = super::settings::load_data(&app);
+        data.settings.preferred_mic_device.clone()
+    };
+    let device = if !preferred.is_empty() {
+        host.input_devices()
+            .map_err(|e| e.to_string())?
+            .find(|d| d.name().map(|n| n == preferred).unwrap_or(false))
+            .unwrap_or(
+                host.default_input_device()
+                    .ok_or("No input device available")?,
+            )
+    } else {
+        host.default_input_device()
+            .ok_or("No input device available")?
+    };
 
     // Use a config suitable for speech: mono 16kHz
     let config = cpal::StreamConfig {

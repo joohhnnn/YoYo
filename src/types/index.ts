@@ -58,6 +58,11 @@ export interface Settings {
   analysis_depth: "casual" | "normal" | "deep";
   app_blacklist: string[];
   onboarding_completed: boolean;
+  preferred_mic_device: string;
+}
+
+export interface AudioDevice {
+  name: string;
 }
 
 export interface AppSwitchEvent {
