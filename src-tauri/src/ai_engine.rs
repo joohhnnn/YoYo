@@ -438,10 +438,37 @@ pub fn extract_json_block(response: &str) -> &str {
     response
 }
 
+/// Sanitize common AI JSON mistakes: Chinese punctuation, smart quotes, etc.
+fn sanitize_json(raw: &str) -> String {
+    raw
+        // Chinese full-width punctuation → ASCII
+        .replace('\u{FF0C}', ",")  // ，
+        .replace('\u{FF1A}', ":")  // ：
+        .replace('\u{3001}', ",")  // 、
+        // Smart quotes → escaped ASCII quotes (inside JSON strings)
+        .replace('\u{201C}', "\\\"") // "
+        .replace('\u{201D}', "\\\"") // "
+        .replace('\u{2018}', "'")    // '
+        .replace('\u{2019}', "'")    // '
+}
+
+/// Try to parse JSON, falling back to sanitized version on failure.
+fn parse_json_lenient<T: serde::de::DeserializeOwned>(json_str: &str) -> Result<T, serde_json::Error> {
+    // Try raw first
+    match serde_json::from_str::<T>(json_str) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            // Retry with sanitized JSON
+            let sanitized = sanitize_json(json_str);
+            serde_json::from_str::<T>(&sanitized)
+        }
+    }
+}
+
 /// Parse the AI response text into an AnalysisResult.
 fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
     let json_str = extract_json_block(response);
-    serde_json::from_str::<AnalysisResult>(json_str).map_err(|e| {
+    parse_json_lenient::<AnalysisResult>(json_str).map_err(|e| {
         format!(
             "Failed to parse AI response as JSON: {}. Raw: {}",
             e, response
@@ -452,7 +479,7 @@ fn parse_ai_response(response: &str) -> Result<AnalysisResult, String> {
 /// Parse the AI response text into an IntentResult.
 fn parse_intent_response(response: &str) -> Result<IntentResult, String> {
     let json_str = extract_json_block(response);
-    serde_json::from_str::<IntentResult>(json_str).map_err(|e| {
+    parse_json_lenient::<IntentResult>(json_str).map_err(|e| {
         format!(
             "Failed to parse intent response as JSON: {}. Raw: {}",
             e, response

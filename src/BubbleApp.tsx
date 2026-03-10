@@ -89,13 +89,11 @@ export default function BubbleApp() {
         name: event.payload.app_name,
         title: "",
       });
-      // Auto-analysis is handled by Rust; show working state
+      // Only show working state if not actively interacting (typing or processing intent)
       setState((s) => {
-        if (s === "working") return s;
+        if (s === "active" || s === "working" || s === "done") return s;
         return "working";
       });
-      setAnalysisStage(null);
-      setError(null);
     });
 
     const unlistenProgress = listen<string>("analysis-progress", (event) => {
