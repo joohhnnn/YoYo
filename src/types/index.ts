@@ -100,3 +100,9 @@ export interface KnowledgeStats {
   due: number;
 }
 
+export interface EditTrackingResult {
+  found: boolean;
+  reverted: boolean;
+  reason?: string;
+}
+

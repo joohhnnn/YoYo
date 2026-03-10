@@ -66,6 +66,7 @@ Each action must use one of these types:
 - open_url: Open a URL (provide the url in params)
 - open_app: Switch to an app (provide the bundle_id in params.app, e.g. "com.apple.Safari"). If an [Open Windows] section is provided, use the exact bundle_id listed there.
 - copy_to_clipboard: Copy detected text/data (provide the text in params)
+- insert_text: Type/paste text into the focused app (provide the text in params)
 - run_command: Run a terminal command (provide the command in params)
 - notify: Set a reminder (provide the message in params)
 
@@ -92,11 +93,12 @@ Each step must use one of these action types:
 - open_url: Open a URL (provide the url in params)
 - open_app: Switch to an app (provide the bundle_id in params.app, e.g. "com.apple.Safari"). If an [Open Windows] section is provided, use the exact bundle_id listed there.
 - copy_to_clipboard: Copy text (provide the text in params)
+- insert_text: Type/paste text into the focused app (provide the text in params). Use for templates, drafts, code snippets.
 - run_command: Run a terminal command (provide the command in params). Keep commands safe and non-destructive.
 - notify: Send a notification (provide the message in params)
 - claude_code: Run Claude Code CLI in a directory with a prompt (provide params.prompt and params.directory). Use for complex coding tasks like fixing bugs, writing code, or answering technical questions about a project.
 
-Set "needs_confirmation" to true for plans with run_command, claude_code, or multiple steps.
+Set "needs_confirmation" to true for plans with run_command, claude_code, insert_text, or multiple steps.
 Set it to false for simple single-step actions (open_url, open_app).
 
 Respond ONLY with valid JSON, no other text:

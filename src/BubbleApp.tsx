@@ -5,7 +5,7 @@ import { register } from "@tauri-apps/plugin-global-shortcut";
 import { ActionButtons } from "./components/ActionButtons";
 import { useActions } from "./hooks/useActions";
 import { useWindowAutoResize } from "./hooks/useWindowAutoResize";
-import type { AnalysisResult, AppSwitchEvent, BubbleState, IntentResult, KnowledgeMetadata, KnowledgeRecord, PlanStep, Settings, SuggestedAction } from "./types";
+import type { AnalysisResult, AppSwitchEvent, BubbleState, EditTrackingResult, IntentResult, KnowledgeMetadata, KnowledgeRecord, PlanStep, Settings, SuggestedAction } from "./types";
 
 export default function BubbleApp() {
   const [state, setState] = useState<BubbleState>("ambient");
@@ -30,6 +30,7 @@ export default function BubbleApp() {
   const [nudgeItem, setNudgeItem] = useState<KnowledgeRecord | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [editTracking, setEditTracking] = useState<Record<number, EditTrackingResult | "checking">>({});
   const { executing, execute } = useActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -182,6 +183,7 @@ export default function BubbleApp() {
     setFeedbackGiven(false);
     setShowQuiz(false);
     setShowAnswer(false);
+    setEditTracking({});
     setError(null);
     clearDismissTimer();
   };
@@ -295,6 +297,24 @@ export default function BubbleApp() {
           actionType: steps[i].action_type,
           params: steps[i].params,
         });
+        // Edit tracking for insert_text steps
+        if (steps[i].action_type === "insert_text" && steps[i].params.text) {
+          const stepIdx = i;
+          const insertedText = steps[i].params.text!;
+          const eid = execId;
+          setEditTracking(prev => ({ ...prev, [stepIdx]: "checking" }));
+          setTimeout(async () => {
+            try {
+              const result = await invoke<EditTrackingResult>("check_inserted_text", {
+                originalText: insertedText,
+              });
+              setEditTracking(prev => ({ ...prev, [stepIdx]: result }));
+              if (result.reverted && eid) {
+                invoke("feedback_execution", { id: eid, feedback: "reverted" }).catch(() => {});
+              }
+            } catch { /* ignore */ }
+          }, 8000);
+        }
       } catch (e) {
         setError(`Step ${i + 1} failed: ${e}`);
         setFailedStep(i);
@@ -646,6 +666,14 @@ export default function BubbleApp() {
                         <span className={`text-[12px] ${i <= currentStep ? "text-zinc-300" : "text-zinc-600"}`}>
                           {step.label}
                         </span>
+                        {editTracking[i] === "checking" && (
+                          <span className="text-[9px] text-zinc-600 ml-1 flex-shrink-0">checking...</span>
+                        )}
+                        {editTracking[i] && editTracking[i] !== "checking" && (
+                          <span className={`text-[9px] ml-1 flex-shrink-0 ${(editTracking[i] as EditTrackingResult).reverted ? "text-amber-400" : "text-green-400"}`}>
+                            {(editTracking[i] as EditTrackingResult).reverted ? "edited" : "kept"}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -693,6 +721,28 @@ export default function BubbleApp() {
                         <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       <span className="text-[11px] text-zinc-400">Done</span>
+                      {/* Edit tracking status */}
+                      {Object.keys(editTracking).length > 0 && (
+                        <div className="w-full space-y-1 mt-1">
+                          {intentResult.plan.map((step, i) =>
+                            editTracking[i] !== undefined ? (
+                              <div key={i} className="flex items-center gap-1.5 px-2">
+                                <svg className="w-3 h-3 text-violet-400 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <span className="text-[11px] text-zinc-500 truncate">{step.label}</span>
+                                {editTracking[i] === "checking" ? (
+                                  <span className="text-[9px] text-zinc-600 flex-shrink-0">checking...</span>
+                                ) : (
+                                  <span className={`text-[9px] flex-shrink-0 ${(editTracking[i] as EditTrackingResult).reverted ? "text-amber-400" : "text-green-400"}`}>
+                                    {(editTracking[i] as EditTrackingResult).reverted ? "edited" : "kept"}
+                                  </span>
+                                )}
+                              </div>
+                            ) : null
+                          )}
+                        </div>
+                      )}
                       {/* Feedback buttons */}
                       {executionId && !feedbackGiven && (
                         <div className="flex gap-3 mt-1">
@@ -768,6 +818,14 @@ export default function BubbleApp() {
                         <div key={i} className="flex items-start gap-2">
                           <span className="text-[11px] text-zinc-500 font-mono mt-0.5 flex-shrink-0">{i + 1}.</span>
                           <span className="text-[12px] text-zinc-400">{step.label}</span>
+                          {editTracking[i] === "checking" && (
+                            <span className="text-[9px] text-zinc-600 ml-1 flex-shrink-0">checking...</span>
+                          )}
+                          {editTracking[i] && editTracking[i] !== "checking" && (
+                            <span className={`text-[9px] ml-1 flex-shrink-0 ${(editTracking[i] as EditTrackingResult).reverted ? "text-amber-400" : "text-green-400"}`}>
+                              {(editTracking[i] as EditTrackingResult).reverted ? "edited" : "kept"}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>

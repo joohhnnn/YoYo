@@ -266,6 +266,7 @@ pub fn run() {
             commands::actions::execute_action,
             commands::actions::start_execution,
             commands::actions::cancel_execution,
+            commands::actions::check_inserted_text,
             commands::audio::check_voice_permission,
             commands::audio::request_voice_permission,
             commands::audio::start_recording,

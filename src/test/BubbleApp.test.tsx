@@ -78,6 +78,7 @@ function setupInvokeMock(overrides: { result?: AnalysisResult | null; intentResu
       case "review_knowledge": return Promise.resolve(null);
       case "delete_knowledge": return Promise.resolve(null);
       case "get_knowledge_stats": return Promise.resolve({ total: 0, due: 0 });
+      case "check_inserted_text": return Promise.resolve({ found: true, reverted: false });
       default: return Promise.resolve(null);
     }
   });
@@ -911,6 +912,131 @@ describe("BubbleApp State Machine", () => {
       // Quiz should be gone, should show input instead
       expect(screen.queryByText("useEffect")).not.toBeInTheDocument();
       expect(screen.getByPlaceholderText("Ask YoYo anything...")).toBeInTheDocument();
+    });
+  });
+
+  describe("Edit Tracking", () => {
+    const insertTextIntent: IntentResult = {
+      understanding: "User wants to insert a greeting",
+      plan: [
+        { action_type: "insert_text", label: "Insert greeting", params: { text: "Hello, world!" } },
+      ],
+      needs_confirmation: true,
+    };
+
+    it("shows checking status after insert_text step", async () => {
+      setupInvokeMock();
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await flush();
+
+      await act(async () => {
+        intentCallback?.({ payload: insertTextIntent });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+      });
+
+      // "checking..." should appear after execution completes (8s timer not yet fired)
+      expect(screen.getByText("checking...")).toBeInTheDocument();
+    });
+
+    it("shows kept badge when text is found", async () => {
+      vi.useFakeTimers();
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "start_execution": return Promise.resolve(null);
+          case "execute_action": return Promise.resolve(null);
+          case "record_execution": return Promise.resolve(42);
+          case "complete_execution": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([]);
+          case "check_inserted_text": return Promise.resolve({ found: true, reverted: false });
+          default: return Promise.resolve(null);
+        }
+      });
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+
+      await act(async () => {
+        intentCallback?.({ payload: insertTextIntent });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+        await vi.advanceTimersByTimeAsync(1);
+      });
+
+      // Advance timer past the 8-second check
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+
+      expect(screen.getByText("kept")).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it("shows edited badge when text is reverted", async () => {
+      vi.useFakeTimers();
+      (invoke as ReturnType<typeof vi.fn>).mockImplementation((cmd: string) => {
+        switch (cmd) {
+          case "get_settings": return Promise.resolve(mockSettings);
+          case "get_last_analysis": return Promise.resolve(null);
+          case "start_execution": return Promise.resolve(null);
+          case "execute_action": return Promise.resolve(null);
+          case "record_execution": return Promise.resolve(42);
+          case "complete_execution": return Promise.resolve(null);
+          case "get_due_knowledge": return Promise.resolve([]);
+          case "check_inserted_text": return Promise.resolve({ found: false, reverted: true });
+          case "feedback_execution": return Promise.resolve(null);
+          default: return Promise.resolve(null);
+        }
+      });
+
+      let intentCallback: ((event: { payload: IntentResult }) => void) | null = null;
+      (listen as ReturnType<typeof vi.fn>).mockImplementation((event: string, cb: any) => {
+        if (event === "intent-complete") intentCallback = cb;
+        return Promise.resolve(() => {});
+      });
+
+      render(<BubbleApp />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+
+      await act(async () => {
+        intentCallback?.({ payload: insertTextIntent });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Confirm"));
+        await vi.advanceTimersByTimeAsync(1);
+      });
+
+      // Advance timer past the 8-second check
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+
+      expect(screen.getByText("edited")).toBeInTheDocument();
+      // Should auto-feedback as reverted
+      expect(invoke).toHaveBeenCalledWith("feedback_execution", { id: 42, feedback: "reverted" });
+
+      vi.useRealTimers();
     });
   });
 });

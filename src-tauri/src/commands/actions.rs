@@ -136,7 +136,71 @@ pub async fn execute_action(
                 Err(format!("Claude CLI failed: {}", stderr))
             }
         }
+        "insert_text" => {
+            let text = params["text"].as_str().ok_or("Missing text parameter")?;
+            if text.len() > 50_000 {
+                return Err("Text too long (max 50,000 chars)".to_string());
+            }
+            // Copy to clipboard
+            let mut child = std::process::Command::new("pbcopy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to run pbcopy: {}", e))?;
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("Failed to write to pbcopy: {}", e))?;
+            child.wait().map_err(|e| e.to_string())?;
+
+            // Simulate Cmd+V paste via osascript (controlled action, not user input)
+            let output = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    r#"tell application "System Events" to keystroke "v" using command down"#,
+                ])
+                .output()
+                .map_err(|e| format!("Failed to paste: {}", e))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "Paste failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            Ok(())
+        }
         _ => Err(format!("Unknown action type: {}", action_type)),
+    }
+}
+
+/// Check if inserted text is still present in the focused app's accessibility tree.
+#[tauri::command]
+pub fn check_inserted_text(
+    app: AppHandle,
+    original_text: String,
+) -> Result<serde_json::Value, String> {
+    let state = app.state::<crate::AppState>();
+    let pid = state.current_app_pid.load(Ordering::Relaxed) as i32;
+    if pid <= 0 {
+        return Ok(serde_json::json!({ "found": false, "reason": "no_app" }));
+    }
+
+    match crate::accessibility::extract_text(pid) {
+        Ok(result) if result.error.is_none() => {
+            let ax_text = result.text;
+            let found = if original_text.len() > 100 {
+                ax_text.contains(&original_text[..100])
+            } else {
+                ax_text.contains(&original_text)
+            };
+            Ok(serde_json::json!({
+                "found": found,
+                "reverted": !found,
+            }))
+        }
+        _ => Ok(serde_json::json!({ "found": false, "reason": "ax_failed" })),
     }
 }
 

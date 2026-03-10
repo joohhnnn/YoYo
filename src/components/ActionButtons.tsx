@@ -31,6 +31,11 @@ function ActionIcon({ type }: { type: string }) {
         <path d="M8.5 11.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
       </svg>
     ),
+    insert_text: (
+      <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+        <path d="M8 2v12M5 4V2h6v2M5 14v-2h6v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
     notify: (
       <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
         <path d="M8 2a4 4 0 00-4 4v2l-1.5 2.5h11L12 8V6a4 4 0 00-4-4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
