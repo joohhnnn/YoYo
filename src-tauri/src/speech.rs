@@ -73,8 +73,19 @@ pub fn check_mic_permission() -> PermissionStatus {
     }
 }
 
+/// Check if running inside an .app bundle (required for TCC privacy requests).
+fn is_app_bundle() -> bool {
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().contains(".app/"))
+        .unwrap_or(false)
+}
+
 /// Request speech recognition permission. Blocks until user responds.
 pub fn request_speech_permission() -> Result<bool, String> {
+    if !is_app_bundle() {
+        return Err("Speech permission requires app bundle. Use `cargo tauri build --debug` then run the .app".to_string());
+    }
+
     let (tx, rx) = mpsc::channel();
 
     unsafe {
@@ -94,6 +105,10 @@ pub fn request_speech_permission() -> Result<bool, String> {
 
 /// Request microphone permission. Blocks until user responds.
 pub fn request_mic_permission() -> Result<bool, String> {
+    if !is_app_bundle() {
+        return Err("Microphone permission requires app bundle. Use `cargo tauri build --debug` then run the .app".to_string());
+    }
+
     let (tx, rx) = mpsc::channel();
 
     unsafe {
