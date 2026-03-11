@@ -47,6 +47,8 @@ pub struct AppState {
     pub recording: Mutex<Option<RecordingState>>,
     // Last nudge emission time (millis) — 30min cooldown
     pub last_nudge_time: AtomicI64,
+    // Last known window title (for title-change detection)
+    pub last_window_title: Mutex<String>,
 }
 
 pub fn run() {
@@ -87,11 +89,13 @@ pub fn run() {
             abort_flag: AtomicBool::new(false),
             recording: Mutex::new(None),
             last_nudge_time: AtomicI64::new(0),
+            last_window_title: Mutex::new(String::new()),
         })
         .setup(|app| {
             // Start window monitor
             let app_handle = app.handle().clone();
             window_monitor::start_monitoring(app_handle.clone());
+            window_monitor::start_title_monitoring(app_handle.clone());
 
             // Initialize ~/.yoyo/ directory, profile.md, context.md, yoyo.db
             if let Err(e) = user_data::ensure_initialized() {
@@ -165,6 +169,10 @@ pub fn run() {
                     state
                         .current_app_pid
                         .store(payload.pid as i64, Ordering::Relaxed);
+                    // Reset window title on app switch (first poll will set it)
+                    if let Ok(mut title) = state.last_window_title.lock() {
+                        *title = String::new();
+                    }
                 }
 
                 // Increment counter; only the latest event will match after debounce
