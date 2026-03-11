@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -556,6 +556,28 @@ pub fn get_scene_sessions(limit: usize) -> Result<Vec<SceneSession>, String> {
     Ok(result)
 }
 
+/// Get the most recently ended scene session (for note generation on scene switch).
+pub fn get_last_ended_session() -> Result<Option<SceneSession>, String> {
+    let conn = get_db()?;
+    let result = conn
+        .query_row(
+            "SELECT id, scene_name, started_at, ended_at
+             FROM scene_sessions WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+            [],
+            |row| {
+                Ok(SceneSession {
+                    id: row.get(0)?,
+                    scene_name: row.get(1)?,
+                    started_at: row.get(2)?,
+                    ended_at: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
 // ---------------------------------------------------------------------------
 // Executions (execution history)
 // ---------------------------------------------------------------------------
@@ -850,6 +872,36 @@ pub fn get_knowledge_count() -> Result<i64, String> {
     let conn = get_db()?;
     conn.query_row("SELECT COUNT(*) FROM knowledge", [], |row| row.get(0))
         .map_err(|e| e.to_string())
+}
+
+/// Get knowledge items created within a time range (for note generation).
+pub fn get_knowledge_in_range(from: &str, to: &str) -> Result<Vec<KnowledgeRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, content, COALESCE(source,''), COALESCE(metadata,'{}'), created_at
+             FROM knowledge WHERE created_at >= ?1 AND created_at <= ?2 ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![from, to], |row| {
+            Ok(KnowledgeRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                source: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
 }
 
 /// Prune old activity_log and execution records to keep disk usage bounded.
