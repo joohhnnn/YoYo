@@ -384,6 +384,7 @@ pub fn run() {
             commands::knowledge::review_knowledge,
             commands::knowledge::delete_knowledge,
             commands::knowledge::get_knowledge_stats,
+            commands::knowledge::generate_note,
             commands::onboarding::check_ax_permission,
             commands::onboarding::open_ax_settings,
             commands::onboarding::open_mic_settings,

@@ -17,6 +17,13 @@ pub fn yoyo_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Returns ~/.yoyo/notes/, creating it if needed.
+pub fn notes_dir() -> Result<PathBuf, String> {
+    let dir = yoyo_dir()?.join("notes");
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create notes dir: {}", e))?;
+    Ok(dir)
+}
+
 // ---------------------------------------------------------------------------
 // Markdown files
 // ---------------------------------------------------------------------------
