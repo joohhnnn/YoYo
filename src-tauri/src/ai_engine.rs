@@ -888,6 +888,64 @@ Rules:
 - Skip any section that has no relevant items (don't include empty sections)
 - Do NOT wrap the output in a code block — output raw Markdown directly"#;
 
+/// Build note prompt with additional raw context for richer notes.
+pub fn build_note_prompt_with_context(
+    scene_name: &str,
+    duration_str: &str,
+    items: &[KnowledgeItem],
+    raw_contexts: &[crate::user_data::RawContextRecord],
+) -> String {
+    let mut parts = Vec::new();
+
+    parts.push(format!(
+        "[Session Info]\nScene: {}\nDuration: {}",
+        scene_name, duration_str
+    ));
+
+    // Knowledge items section
+    if !items.is_empty() {
+        let mut items_text = String::from("[Extracted Knowledge Items]\n");
+        for item in items {
+            match item.kind.as_str() {
+                "vocab" => {
+                    items_text.push_str(&format!(
+                        "- [Vocab] {}: {}\n",
+                        item.content,
+                        item.definition.as_deref().unwrap_or("")
+                    ));
+                }
+                "concept" => {
+                    items_text.push_str(&format!("- [Concept] {}\n", item.content));
+                }
+                "reading" => {
+                    items_text.push_str(&format!("- [Reading] {}\n", item.content));
+                }
+                other => {
+                    items_text.push_str(&format!("- [{}] {}\n", other, item.content));
+                }
+            }
+        }
+        parts.push(items_text);
+    }
+
+    // Browsing/reading timeline from raw_context
+    if !raw_contexts.is_empty() {
+        let mut timeline = String::from("[Browsing/Reading Timeline]\n");
+        for rc in raw_contexts {
+            let mut line = format!("- {} [{}] {}", rc.created_at, rc.app_name, rc.window_title);
+            if let Some(ref url) = rc.url {
+                line.push_str(&format!(" ({})", url));
+            }
+            line.push('\n');
+            timeline.push_str(&line);
+        }
+        parts.push(timeline);
+    }
+
+    parts.push(NOTE_GENERATION_PROMPT.to_string());
+    parts.join("\n\n")
+}
+
 /// Build the note generation prompt from session knowledge items.
 pub fn build_note_prompt(scene_name: &str, duration_str: &str, items: &[KnowledgeItem]) -> String {
     let mut parts = Vec::new();

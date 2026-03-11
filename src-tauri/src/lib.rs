@@ -395,6 +395,7 @@ pub fn run() {
             commands::settings::save_context,
             commands::analysis::get_last_analysis,
             commands::activity::get_recent_activities,
+            commands::activity::search_raw_context,
             commands::intent::understand_intent,
             commands::workflow::record_execution,
             commands::workflow::complete_execution,

@@ -91,7 +91,8 @@ pub async fn generate_note(app: AppHandle) -> Result<Option<String>, String> {
 
     // Query knowledge items in session time range
     let items = user_data::get_knowledge_in_range(&session.started_at, ended_at)?;
-    if items.is_empty() {
+    let raw_contexts = user_data::get_raw_context_in_range(&session.started_at, ended_at)?;
+    if items.is_empty() && raw_contexts.is_empty() {
         return Ok(None);
     }
 
@@ -113,7 +114,12 @@ pub async fn generate_note(app: AppHandle) -> Result<Option<String>, String> {
         .collect();
 
     // Build prompt and call AI
-    let prompt = ai_engine::build_note_prompt(&scene_name, &duration_str, &knowledge_items);
+    let prompt = ai_engine::build_note_prompt_with_context(
+        &scene_name,
+        &duration_str,
+        &knowledge_items,
+        &raw_contexts,
+    );
 
     let data = load_data(&app);
     let note_content = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
