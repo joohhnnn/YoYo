@@ -261,6 +261,9 @@ pub fn run() {
                             let actions_json =
                                 serde_json::to_string(&result.actions).unwrap_or_default();
 
+                            // Capture context ONCE (reused for raw_context + knowledge extraction)
+                            let ctx = screen_context::capture(&app);
+
                             match user_data::record_activity(
                                 &app_name,
                                 &bundle_id,
@@ -268,6 +271,21 @@ pub fn run() {
                                 &actions_json,
                             ) {
                                 Ok(true) => {
+                                    // Store raw context alongside activity
+                                    if let Err(e) = user_data::insert_raw_context(
+                                        &ctx.app_name,
+                                        &ctx.bundle_id,
+                                        &ctx.window_title,
+                                        ctx.url.as_deref(),
+                                        ctx.ax_text.as_deref(),
+                                        ctx.ocr_text.as_deref(),
+                                        ctx.selected_text.as_deref(),
+                                        &ctx.depth,
+                                        "analysis",
+                                    ) {
+                                        log::error!("Failed to store raw context: {}", e);
+                                    }
+
                                     // New record inserted — check if summarization needed
                                     let app_for_summary = app.clone();
                                     tauri::async_runtime::spawn(async move {
@@ -278,8 +296,7 @@ pub fn run() {
                                 Err(e) => log::error!("Failed to record activity: {}", e),
                             }
 
-                            // Knowledge extraction — piggyback on analysis
-                            let ctx = screen_context::capture(&app);
+                            // Knowledge extraction — reuse ctx captured above
                             if screen_context::is_learning_context(&ctx, scene.as_deref()) {
                                 let app_clone = app.clone();
                                 let context_str = result.context.clone();
