@@ -2,7 +2,7 @@ use crate::user_data;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -211,10 +211,26 @@ pub fn save_context(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_scene(app: AppHandle, scene: Option<String>) -> Result<(), String> {
-    // Close previous session and start new one
+pub async fn set_scene(app: AppHandle, scene: Option<String>) -> Result<(), String> {
+    // Close previous session
     user_data::end_current_session()?;
+
+    // Spawn note generation for the ended session (non-blocking)
+    let note_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match super::knowledge::generate_note(note_app.clone()).await {
+            Ok(Some(path)) => {
+                log::info!("Learning note generated: {}", path);
+                let _ = note_app.emit("note-generated", &path);
+            }
+            Ok(None) => {} // no items or observation mode
+            Err(e) => log::error!("Note generation failed: {}", e),
+        }
+    });
+
+    // Start new session
     user_data::start_scene_session(scene.as_deref())?;
+
     // Persist to settings
     let mut data = load_data(&app);
     data.settings.current_scene = scene;
