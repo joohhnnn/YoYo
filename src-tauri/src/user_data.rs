@@ -256,6 +256,29 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         log::info!("DB migration 4 applied: scene_sessions table");
     }
 
+    // Migration 5: Raw context table for storing full screen context
+    if current < 5 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS raw_context (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_name      TEXT NOT NULL,
+                bundle_id     TEXT NOT NULL,
+                window_title  TEXT NOT NULL DEFAULT '',
+                url           TEXT,
+                ax_text       TEXT,
+                ocr_text      TEXT,
+                selected_text TEXT,
+                depth         TEXT NOT NULL DEFAULT 'normal',
+                source        TEXT NOT NULL DEFAULT 'analysis',
+                created_at    TEXT DEFAULT (datetime('now','localtime'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_raw_context_created ON raw_context(created_at);",
+        )
+        .map_err(|e| format!("Migration 5 failed: {}", e))?;
+        set_schema_version(conn, 5)?;
+        log::info!("DB migration 5 applied: raw_context table");
+    }
+
     Ok(())
 }
 
@@ -934,6 +957,11 @@ pub fn cleanup_old_data() -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("cleanup scene_sessions: {}", e))?;
+    conn.execute(
+        "DELETE FROM raw_context WHERE id NOT IN (SELECT id FROM raw_context ORDER BY id DESC LIMIT 2000)",
+        [],
+    )
+    .map_err(|e| format!("cleanup raw_context: {}", e))?;
     Ok(())
 }
 
@@ -959,6 +987,147 @@ pub fn get_due_knowledge(limit: usize) -> Result<Vec<KnowledgeRecord>, String> {
                 source: row.get(3)?,
                 metadata: row.get(4)?,
                 created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Raw context (full screen context storage)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RawContextRecord {
+    pub id: i64,
+    pub app_name: String,
+    pub bundle_id: String,
+    pub window_title: String,
+    pub url: Option<String>,
+    pub ax_text: Option<String>,
+    pub ocr_text: Option<String>,
+    pub selected_text: Option<String>,
+    pub depth: String,
+    pub source: String,
+    pub created_at: String,
+}
+
+/// Insert a raw context record. Returns the new row id.
+pub fn insert_raw_context(
+    app_name: &str,
+    bundle_id: &str,
+    window_title: &str,
+    url: Option<&str>,
+    ax_text: Option<&str>,
+    ocr_text: Option<&str>,
+    selected_text: Option<&str>,
+    depth: &str,
+    source: &str,
+) -> Result<i64, String> {
+    let conn = get_db()?;
+    conn.execute(
+        "INSERT INTO raw_context (app_name, bundle_id, window_title, url, ax_text, ocr_text, selected_text, depth, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![app_name, bundle_id, window_title, url, ax_text, ocr_text, selected_text, depth, source],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Insert a lightweight title-change record (no ax_text/ocr_text/selected_text).
+pub fn insert_title_change(
+    app_name: &str,
+    bundle_id: &str,
+    window_title: &str,
+    url: Option<&str>,
+) -> Result<i64, String> {
+    insert_raw_context(
+        app_name,
+        bundle_id,
+        window_title,
+        url,
+        None,
+        None,
+        None,
+        "casual",
+        "title_change",
+    )
+}
+
+/// Search raw_context by keyword (LIKE search across window_title, url, ax_text, selected_text).
+pub fn search_raw_context(query: &str, limit: usize) -> Result<Vec<RawContextRecord>, String> {
+    let conn = get_db()?;
+    let pattern = format!("%{}%", query);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, app_name, bundle_id, window_title, url,
+                    ax_text, ocr_text, selected_text, depth, source, created_at
+             FROM raw_context
+             WHERE window_title LIKE ?1
+                OR url LIKE ?1
+                OR ax_text LIKE ?1
+                OR selected_text LIKE ?1
+             ORDER BY id DESC LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![pattern, limit as i64], |row| {
+            Ok(RawContextRecord {
+                id: row.get(0)?,
+                app_name: row.get(1)?,
+                bundle_id: row.get(2)?,
+                window_title: row.get(3)?,
+                url: row.get(4)?,
+                ax_text: row.get(5)?,
+                ocr_text: row.get(6)?,
+                selected_text: row.get(7)?,
+                depth: row.get(8)?,
+                source: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+/// Get raw context records within a time range (for note generation).
+pub fn get_raw_context_in_range(from: &str, to: &str) -> Result<Vec<RawContextRecord>, String> {
+    let conn = get_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, app_name, bundle_id, window_title, url,
+                    ax_text, ocr_text, selected_text, depth, source, created_at
+             FROM raw_context
+             WHERE created_at >= ?1 AND created_at <= ?2
+             ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![from, to], |row| {
+            Ok(RawContextRecord {
+                id: row.get(0)?,
+                app_name: row.get(1)?,
+                bundle_id: row.get(2)?,
+                window_title: row.get(3)?,
+                url: row.get(4)?,
+                ax_text: row.get(5)?,
+                ocr_text: row.get(6)?,
+                selected_text: row.get(7)?,
+                depth: row.get(8)?,
+                source: row.get(9)?,
+                created_at: row.get(10)?,
             })
         })
         .map_err(|e| e.to_string())?;
