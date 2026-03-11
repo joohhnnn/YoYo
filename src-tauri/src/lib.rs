@@ -538,9 +538,10 @@ async fn maybe_run_summarization(app: &tauri::AppHandle) {
     let data = commands::settings::load_data(app);
 
     let summary_result = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model, None)
+            .await
     } else {
-        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model, None).await
     };
 
     match summary_result {
@@ -591,9 +592,10 @@ async fn extract_and_store_knowledge(
     );
 
     let response = if data.settings.ai_mode == "api" && !data.settings.api_key.is_empty() {
-        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model).await?
+        ai_engine::simple_chat_api(&prompt, &data.settings.api_key, &data.settings.model, None)
+            .await?
     } else {
-        ai_engine::simple_chat_cli(&prompt, &data.settings.model).await?
+        ai_engine::simple_chat_cli(&prompt, &data.settings.model, None).await?
     };
 
     let json_str = ai_engine::extract_json_block(&response);

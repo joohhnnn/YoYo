@@ -681,9 +681,14 @@ pub async fn intent_with_api(
 // ---------------------------------------------------------------------------
 
 /// Simple text-only chat via CLI (no image).
-pub async fn simple_chat_cli(prompt: &str, model: &str) -> Result<String, String> {
+pub async fn simple_chat_cli(
+    prompt: &str,
+    model: &str,
+    max_tokens: Option<u32>,
+) -> Result<String, String> {
+    let tokens = max_tokens.unwrap_or(300).to_string();
     let output = tokio::process::Command::new("claude")
-        .args(["-p", prompt, "--model", model])
+        .args(["-p", prompt, "--model", model, "--max-tokens", &tokens])
         .output()
         .await
         .map_err(|e| format!("Claude CLI failed: {}", e))?;
@@ -696,11 +701,16 @@ pub async fn simple_chat_cli(prompt: &str, model: &str) -> Result<String, String
 }
 
 /// Simple text-only chat via API (no image).
-pub async fn simple_chat_api(prompt: &str, api_key: &str, model: &str) -> Result<String, String> {
+pub async fn simple_chat_api(
+    prompt: &str,
+    api_key: &str,
+    model: &str,
+    max_tokens: Option<u32>,
+) -> Result<String, String> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 300,
+        "max_tokens": max_tokens.unwrap_or(300),
         "messages": [{"role": "user", "content": prompt}]
     });
 
@@ -843,5 +853,73 @@ pub fn build_knowledge_prompt(
     }
 
     parts.push(KNOWLEDGE_EXTRACTION_PROMPT.to_string());
+    parts.join("\n\n")
+}
+
+// ---------------------------------------------------------------------------
+// Learning note generation
+// ---------------------------------------------------------------------------
+
+const NOTE_GENERATION_PROMPT: &str = r#"You are generating a structured learning note from a study session.
+Based on the knowledge items extracted during this session, create a well-organized Markdown document.
+
+Structure the note as follows:
+
+## Overview
+A 2-3 sentence summary of what was studied in this session.
+
+## Key Concepts
+List the important concepts, patterns, or principles learned. Use bullet points with bold terms and clear explanations.
+
+## Terminology
+If there are vocabulary/technical terms, create a table:
+| Term | Definition |
+|------|-----------|
+
+## Reading Notes
+If there are reading summaries, organize them into a coherent narrative.
+
+## Connections
+Note any relationships between concepts (optional, only if obvious connections exist).
+
+Rules:
+- Write in the same language as the knowledge items
+- Keep it concise but informative
+- Skip any section that has no relevant items (don't include empty sections)
+- Do NOT wrap the output in a code block — output raw Markdown directly"#;
+
+/// Build the note generation prompt from session knowledge items.
+pub fn build_note_prompt(scene_name: &str, duration_str: &str, items: &[KnowledgeItem]) -> String {
+    let mut parts = Vec::new();
+
+    parts.push(format!(
+        "[Session Info]\nScene: {}\nDuration: {}",
+        scene_name, duration_str
+    ));
+
+    let mut items_text = String::from("[Extracted Knowledge Items]\n");
+    for item in items {
+        match item.kind.as_str() {
+            "vocab" => {
+                items_text.push_str(&format!(
+                    "- [Vocab] {}: {}\n",
+                    item.content,
+                    item.definition.as_deref().unwrap_or("")
+                ));
+            }
+            "concept" => {
+                items_text.push_str(&format!("- [Concept] {}\n", item.content));
+            }
+            "reading" => {
+                items_text.push_str(&format!("- [Reading] {}\n", item.content));
+            }
+            other => {
+                items_text.push_str(&format!("- [{}] {}\n", other, item.content));
+            }
+        }
+    }
+    parts.push(items_text);
+
+    parts.push(NOTE_GENERATION_PROMPT.to_string());
     parts.join("\n\n")
 }
